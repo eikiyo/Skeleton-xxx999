@@ -1,7 +1,47 @@
 
 // /src/app/api/dispatch-instruction/route.ts
 import { type NextRequest, NextResponse } from 'next/server';
-import type { LogEntry } from '@/context/LogContext'; // Assuming LogEntry is defined here or in types
+import type { LogEntry } from '@/context/LogContext'; // For type reference if needed, though internal log is simpler
+
+type AgentResponseType = {
+  reply?: string;
+  error?: string;
+};
+
+type AgentRole = 'developer' | 'qa' | 'user' | 'system';
+
+type ChatMessage = {
+  from: AgentRole;
+  content: string;
+  timestamp: number;
+  // id is not strictly needed by current frontend chat display from backend, but good for consistency
+  // id: string; 
+};
+
+
+// Helper for agent calls
+async function callAgent(agentFullUrl: string, prompt: string, context?: string): Promise<AgentResponseType> {
+  try {
+    const agentResp = await fetch(agentFullUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, context }) // Agents expect 'prompt' and 'context'
+    });
+
+    const data = await agentResp.json();
+    if (!agentResp.ok) {
+      // Try to get error from data.error or data.reply or data.details
+      const errorDetail = data.error || data.reply || data.details || `Agent call failed with status ${agentResp.status}`;
+      console.error(`[DispatchInstruction-CallAgent] Error from ${agentFullUrl}:`, errorDetail);
+      return { error: String(errorDetail).slice(0, 500) };
+    }
+    // Individual agent routes already return { reply: "..." }
+    return { reply: data.reply || "Agent responded with empty content." };
+  } catch (error: any) {
+    console.error(`[DispatchInstruction-CallAgent] Network or parsing error calling ${agentFullUrl}:`, error);
+    return { error: `Failed to communicate with agent: ${error.message}` };
+  }
+}
 
 export async function POST(req: NextRequest) {
   let requestBody;
@@ -9,129 +49,118 @@ export async function POST(req: NextRequest) {
     requestBody = await req.json();
   } catch (error) {
     console.error('[DispatchInstruction] Invalid JSON body:', error);
-    const systemErrorLog: LogEntry[] = [{ 
-        from: 'system', // 'from' should match LogEntry's source type
+    const systemErrorLog: ChatMessage[] = [{ 
+        from: 'system', 
         content: 'Error: Invalid JSON body provided to dispatcher.', 
         timestamp: Date.now(),
-        id: Date.now().toString() + Math.random().toString() // Add id for LogEntry
     }];
     return NextResponse.json({ result: { chatLog: systemErrorLog }}, { status: 400 });
   }
 
-  const { agentType, instruction, files, chatLog: incomingChatLog = [] } = requestBody;
   // 'instruction' from frontend is the 'prompt' for agents.
   // 'files' from frontend is the 'context' for agents.
+  const { agentType: initialAgentRole, instruction, files, chatLog: incomingChatLog = [] } = requestBody;
+  const userPrompt = instruction;
+  const projectContext = files ? JSON.stringify(files).slice(0, 5000) : undefined;
 
-  if (!agentType || !instruction) {
-    console.error('[DispatchInstruction] Missing agentType or instruction');
-    const systemErrorLog: LogEntry[] = [{ 
+
+  if (!initialAgentRole || !userPrompt) {
+    console.error('[DispatchInstruction] Missing initialAgentRole or instruction (userPrompt)');
+    const systemErrorLog: ChatMessage[] = [{ 
         from: 'system', 
         content: 'Error: Missing agentType or instruction in dispatch request.', 
         timestamp: Date.now(),
-        id: Date.now().toString() + Math.random().toString() 
     }];
     return NextResponse.json({ result: { chatLog: systemErrorLog }}, { status: 400 });
   }
 
-  let agentEndpointPath = '';
-  let agentIdentifier: LogEntry['source'] = 'system'; // Default, will be overridden
+  let primaryAgentEndpointPath = '';
+  let secondaryAgentEndpointPath = '';
+  let primaryAgentRole: AgentRole = 'developer'; // Default
+  let secondaryAgentRole: AgentRole = 'qa'; // Default
 
-  if (agentType === 'developer') {
-    agentEndpointPath = '/api/developer-agent';
-    agentIdentifier = 'developer';
-  } else if (agentType === 'qa') {
-    agentEndpointPath = '/api/qa-agent';
-    agentIdentifier = 'qa';
+  if (initialAgentRole === 'developer') {
+    primaryAgentEndpointPath = '/api/developer-agent';
+    secondaryAgentEndpointPath = '/api/qa-agent';
+    primaryAgentRole = 'developer';
+    secondaryAgentRole = 'qa';
+  } else if (initialAgentRole === 'qa') {
+    primaryAgentEndpointPath = '/api/qa-agent';
+    secondaryAgentEndpointPath = '/api/developer-agent';
+    primaryAgentRole = 'qa';
+    secondaryAgentRole = 'developer';
   } else {
-    console.error(`[DispatchInstruction] Invalid agent type: ${agentType}`);
-    const systemErrorLog: LogEntry[] = [{ 
+    console.error(`[DispatchInstruction] Invalid agent type: ${initialAgentRole}`);
+    const systemErrorLog: ChatMessage[] = [{ 
         from: 'system', 
-        content: `Error: Invalid agent type '${agentType}'.`, 
+        content: `Error: Invalid agent type '${initialAgentRole}'.`, 
         timestamp: Date.now(),
-        id: Date.now().toString() + Math.random().toString()
     }];
     return NextResponse.json({ result: { chatLog: systemErrorLog }}, { status: 400 });
   }
+  
+  const currentUrl = new URL(req.url); // Base URL of the current request
 
-  const currentUrl = new URL(req.url);
-  const agentFullUrl = `${currentUrl.origin}${agentEndpointPath}`;
-
-  const agentPayload = {
-    prompt: instruction, // User's instruction becomes the agent's prompt
-    context: files ? JSON.stringify(files).slice(0, 5000) : undefined, // Pass files as stringified context, limit size
-  };
-
-  // Initialize newLog with a copy of incomingChatLog and the user's new message
-  const newLog: Omit<LogEntry, 'id'>[] = [ // Use Omit as id will be added by LogContext or frontend
-    ...incomingChatLog, // Spread previous log entries
+  // Initialize chat log with any previous messages and the user's new message
+  let conversationLog: ChatMessage[] = [
+    ...incomingChatLog, // Spread previous log entries if any were passed
     { 
       from: "user", 
-      content: instruction, 
-      timestamp: Date.now() 
+      content: userPrompt, 
+      timestamp: Date.now(),
     }
   ];
+  
+  console.log(`[DispatchInstruction] Starting turn 1: User to ${primaryAgentRole}`);
+  // 1st Turn: User's prompt to the primary agent
+  const primaryAgentFullUrl = new URL(primaryAgentEndpointPath, currentUrl).toString();
+  const primaryAgentResponse = await callAgent(primaryAgentFullUrl, userPrompt, projectContext);
 
-
-  try {
-    console.log(`[DispatchInstruction] Calling ${agentIdentifier} agent at ${agentFullUrl} with prompt: "${instruction.substring(0,50)}..."`);
-    const agentRes = await fetch(agentFullUrl, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(agentPayload),
-    });
-
-    const agentResponseData = await agentRes.json();
-    
-    let agentReplyContent = "No reply from agent or error.";
-    if (agentRes.ok && agentResponseData && typeof agentResponseData.reply === 'string') {
-      agentReplyContent = agentResponseData.reply;
-    } else if (!agentRes.ok && agentResponseData && typeof agentResponseData.reply === 'string') { // Agent returned an error with a reply field
-      agentReplyContent = `Error from ${agentIdentifier} (Status: ${agentRes.status}): ${agentResponseData.reply}`;
-      console.error(`[DispatchInstruction] Agent ${agentIdentifier} call failed. Status: ${agentRes.status}. Response:`, agentResponseData.reply);
-    } else { // Other types of errors or unexpected responses
-      const errorDetails = JSON.stringify(agentResponseData).slice(0, 200);
-      agentReplyContent = `Error interacting with ${agentIdentifier} agent (Status: ${agentRes.status}). Details: ${errorDetails}`;
-      console.error(`[DispatchInstruction] Agent ${agentIdentifier} call failed or returned unexpected response. Status: ${agentRes.status}. Response:`, agentResponseData);
-    }
-    
-    // Add agent's response to the newLog
-    newLog.push({
-      from: agentIdentifier,
-      content: agentReplyContent,
-      timestamp: Date.now(),
-    });
-    
-    console.log(`[DispatchInstruction] ${agentIdentifier} agent replied. Total log entries: ${newLog.length}`);
-
-    // The frontend InstructionChat expects an array of LogEntry, each with an id.
-    // The LogContext on the frontend will typically handle adding IDs when logs are added.
-    // Here, we are constructing the full log to send back.
-    // For compatibility with InstructionChat, ensure entries from here match its expected structure
-    // or let InstructionChat handle ID generation when it receives this log.
-    // For now, we assume InstructionChat will handle IDs or the LogContext handles it.
-    // Let's make sure returned logs have 'id' for direct use in frontend if it expects it.
-     const finalLogForFrontend = newLog.map(entry => ({
-      ...entry,
-      id: (entry as any).id || (Date.now().toString() + Math.random().toString()) // Ensure ID exists
-    }));
-
-
-    return NextResponse.json({ result: { chatLog: finalLogForFrontend } });
-
-  } catch (error: any) {
-    console.error(`[DispatchInstruction] Error calling agent ${agentType} at ${agentFullUrl}:`, error);
-    // Add system error to the log and return
-    newLog.push({
-        from: 'system',
-        content: `Internal Server Error during agent dispatch: ${error.message || String(error)}`,
-        timestamp: Date.now()
-    });
-     const finalLogForFrontendOnError = newLog.map(entry => ({
-      ...entry,
-      id: (entry as any).id || (Date.now().toString() + Math.random().toString())
-    }));
-    return NextResponse.json({ result: { chatLog: finalLogForFrontendOnError } }, { status: 500 });
+  if (primaryAgentResponse.error) {
+    conversationLog.push({ from: primaryAgentRole, content: `Error: ${primaryAgentResponse.error}`, timestamp: Date.now() });
+    // Return immediately on error from the first agent call
+    return NextResponse.json({ result: { chatLog: conversationLog } }, { status: 500 });
   }
+  conversationLog.push({ from: primaryAgentRole, content: primaryAgentResponse.reply!, timestamp: Date.now() });
+
+  // Check for clarification request after 1st agent response
+  if (primaryAgentResponse.reply && primaryAgentResponse.reply.toLowerCase().includes("clarify")) {
+    console.log(`[DispatchInstruction] ${primaryAgentRole} requested clarification. Ending negotiation.`);
+    return NextResponse.json({ result: { chatLog: conversationLog } });
+  }
+
+  let currentNegotiationPrompt = primaryAgentResponse.reply!;
+  const MAX_NEGOTIATION_ROUNDS = 2; // Results in up to 3 agent turns total (Primary -> Secondary -> Primary)
+
+  for (let round = 1; round <= MAX_NEGOTIATION_ROUNDS; round++) {
+    const isSecondaryAgentTurn = round % 2 === 1;
+    const currentResponderEndpointPath = isSecondaryAgentTurn ? secondaryAgentEndpointPath : primaryAgentEndpointPath;
+    const currentResponderRole = isSecondaryAgentTurn ? secondaryAgentRole : primaryAgentRole;
+    const nextTurnNumber = round + 1; // User is turn 0 effectively, Primary agent turn 1.
+
+    console.log(`[DispatchInstruction] Starting negotiation round ${round} (Agent Turn ${nextTurnNumber}): ${currentResponderRole} responds`);
+    const responderFullUrl = new URL(currentResponderEndpointPath, currentUrl).toString();
+    const negotiationResponse = await callAgent(responderFullUrl, currentNegotiationPrompt, projectContext);
+
+    if (negotiationResponse.error) {
+      conversationLog.push({ from: currentResponderRole, content: `Error: ${negotiationResponse.error}`, timestamp: Date.now() });
+      console.error(`[DispatchInstruction] Error in negotiation round ${round} from ${currentResponderRole}. Ending negotiation.`);
+      break; // Exit loop on error
+    }
+    conversationLog.push({ from: currentResponderRole, content: negotiationResponse.reply!, timestamp: Date.now() });
+
+    if (negotiationResponse.reply && negotiationResponse.reply.toLowerCase().includes("clarify")) {
+      console.log(`[DispatchInstruction] ${currentResponderRole} requested clarification in round ${round}. Ending negotiation.`);
+      break; // Exit loop if clarification is requested
+    }
+    currentNegotiationPrompt = negotiationResponse.reply!; // Update prompt for the next agent
+    
+    if (round === MAX_NEGOTIATION_ROUNDS) {
+        console.log(`[DispatchInstruction] Max negotiation rounds (${MAX_NEGOTIATION_ROUNDS}) reached.`);
+    }
+  }
+
+  console.log(`[DispatchInstruction] Negotiation complete. Total log entries: ${conversationLog.length}`);
+  return NextResponse.json({ result: { chatLog: conversationLog } });
 }
+
