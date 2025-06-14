@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,14 +16,26 @@ interface DeveloperAgentPanelProps {
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
   selectedFilePath: string | null;
   setFileContent: (path: string, content: string) => void;
+  currentFileContentForContext: string | null;
 }
 
-export function DeveloperAgentPanel({ instruction, addLog, selectedFilePath, setFileContent }: DeveloperAgentPanelProps) {
-  const [language, setLanguage] = useState('typescript'); // Kept for potential future direct use, though collaborative flow defaults
-  const [framework, setFramework] = useState('nextjs'); // Kept for potential future direct use
-  const [existingCode, setExistingCode] = useState('');
+export function DeveloperAgentPanel({ instruction, addLog, selectedFilePath, setFileContent, currentFileContentForContext }: DeveloperAgentPanelProps) {
+  const [language, setLanguage] = useState('typescript');
+  const [framework, setFramework] = useState('nextjs');
+  const [existingCode, setExistingCode] = useState(''); // This will be managed by useEffect
   const [isLoading, setIsLoading] = useState(false);
   const [output, setOutput] = useState<CollaborativeCodeGenerationOutput | null>(null);
+
+  useEffect(() => {
+    if (selectedFilePath && currentFileContentForContext !== null) {
+      setExistingCode(currentFileContentForContext);
+    } else if (!selectedFilePath) {
+      // If no file is selected, you might want to clear the existingCode 
+      // or leave it as is for the user to manually input context.
+      // For now, let's clear it to avoid confusion if user deselects a file.
+      setExistingCode(''); 
+    }
+  }, [selectedFilePath, currentFileContentForContext]);
 
   const handleSubmit = async () => {
     if (!instruction.trim()) {
@@ -35,20 +47,19 @@ export function DeveloperAgentPanel({ instruction, addLog, selectedFilePath, set
     addLog(`Developer Agent: Starting collaborative code generation for "${instruction}"...`, "agent");
 
     try {
-      // Using the new collaborative flow
       const result = await collaborativeGenerateCode({
         featureRequest: instruction,
-        programmingLanguage: language, // Collaborative flow will use its defaults but we pass it
-        framework: framework,         // Collaborative flow will use its defaults but we pass it
-        existingCodeContext: existingCode,
+        programmingLanguage: language, 
+        framework: framework,
+        existingCodeContext: existingCode, // Uses the state variable `existingCode`
       });
       setOutput(result);
 
       if (result.status === 'success') {
         addLog(`Collaborative Agent: ${result.message}`, "success");
       } else if (result.status === 'needs_clarification') {
-        addLog(`Collaborative Agent: ${result.message}`, "agent"); // 'agent' type for clarification messages
-      } else { // error
+        addLog(`Collaborative Agent: ${result.message}`, "agent");
+      } else { 
         addLog(`Collaborative Agent: ${result.message}`, "error");
       }
 
@@ -90,7 +101,7 @@ export function DeveloperAgentPanel({ instruction, addLog, selectedFilePath, set
     <Card className="w-full shadow-lg">
       <CardHeader>
         <CardTitle className="font-headline">Developer Agent (Collaborative Mode)</CardTitle>
-        <CardDescription>Generate code snippets with automated QA review and refinement.</CardDescription>
+        <CardDescription>Generate code snippets with automated QA review and refinement. Context from the selected file is automatically loaded.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
@@ -108,12 +119,15 @@ export function DeveloperAgentPanel({ instruction, addLog, selectedFilePath, set
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="dev-existing-code">Existing Code Context (Optional for initial generation)</Label>
+          <Label htmlFor="dev-existing-code">
+            Existing Code Context (Auto-loaded from selected file)
+            {!selectedFilePath && " (Select a file or paste context manually)"}
+          </Label>
           <Textarea
             id="dev-existing-code"
             value={existingCode}
             onChange={(e) => setExistingCode(e.target.value)}
-            placeholder="Provide existing code if relevant for context..."
+            placeholder={selectedFilePath ? "Context from selected file loaded. You can edit it here." : "Provide existing code if relevant for context..."}
             rows={5}
             className="font-code"
           />

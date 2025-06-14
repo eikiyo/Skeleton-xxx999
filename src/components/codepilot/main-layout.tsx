@@ -179,7 +179,8 @@ export function MainLayout(props: MainLayoutProps) {
                   selectedAgent={props.selectedAgent}
                   setSelectedAgent={props.setSelectedAgent}
                   instruction={props.instruction}
-                  currentCode={props.currentFileContent}
+                  currentCode={props.currentFileContent} // For QA Agent
+                  currentFileContentForDeveloperAgent={props.currentFileContent} // For Developer Agent context
                   selectedFilePath={props.selectedFilePath}
                   setFileContent={props.setFileContent}
                   addLog={props.addLog}

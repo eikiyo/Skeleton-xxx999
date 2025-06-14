@@ -11,7 +11,8 @@ interface AgentPanelsProps {
   selectedAgent: AgentType | null;
   setSelectedAgent: (agent: AgentType | null) => void;
   instruction: string;
-  currentCode: string;
+  currentCode: string; // Content of the currently selected file, primarily for QA Agent
+  currentFileContentForDeveloperAgent: string; // Content of the currently selected file, for Developer Agent context
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
   applyPatch: (patch: string) => void;
   selectedFilePath: string | null; 
@@ -23,6 +24,7 @@ export function AgentPanels({
   setSelectedAgent,
   instruction,
   currentCode,
+  currentFileContentForDeveloperAgent,
   addLog,
   applyPatch,
   selectedFilePath,
@@ -45,6 +47,7 @@ export function AgentPanels({
           addLog={addLog}
           selectedFilePath={selectedFilePath}
           setFileContent={setFileContent}
+          currentFileContentForContext={currentFileContentForDeveloperAgent}
         />
       </TabsContent>
       <TabsContent value="qa">
