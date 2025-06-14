@@ -8,11 +8,12 @@ const QA_GUARDRAIL_PROMPT = process.env.QA_GUARDRAIL_PROMPT;
 export async function POST(req: NextRequest) {
   if (!QA_API_URL || !QA_API_KEY || !QA_GUARDRAIL_PROMPT) {
     console.error('[QAAgent] Missing required environment variables (QA_AGENT_API_URL, QA_AGENT_API_KEY, QA_GUARDRAIL_PROMPT)');
-    return NextResponse.json({ error: 'Server configuration error: Missing required QA agent environment variables.' }, { status: 500 });
-  }
-
-  if (req.method !== 'POST') {
-    return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
+    const errorResponse = {
+      from: "qa",
+      content: 'Server configuration error: Missing required QA agent environment variables.',
+      timestamp: Date.now(),
+    };
+    return NextResponse.json(errorResponse, { status: 500 });
   }
 
   let body;
@@ -20,23 +21,37 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch (error) {
     console.error('[QAAgent] Invalid JSON body:', error);
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    const errorResponse = {
+      from: "qa",
+      content: 'Invalid JSON body received by QA Agent.',
+      timestamp: Date.now(),
+    };
+    return NextResponse.json(errorResponse, { status: 400 });
   }
 
-  const { files, developerResult } = body;
+  const { files, developerResult, featureRequest } = body; // featureRequest might be passed by dispatcher
 
-  if (!developerResult) {
-    return NextResponse.json({ error: 'developerResult is required in the request body' }, { status: 400 });
+  // QA agent might expect 'developerResult' or 'featureRequest' (instruction)
+  // Based on dispatcher, 'featureRequest' holds the instruction.
+  // We prioritize 'developerResult' if available, otherwise use 'featureRequest'.
+  const mainInput = developerResult || featureRequest;
+
+  if (!mainInput) {
+    const errorResponse = {
+      from: "qa",
+      content: 'developerResult or featureRequest (instruction) is required in the request body for QA Agent.',
+      timestamp: Date.now(),
+    };
+    return NextResponse.json(errorResponse, { status: 400 });
   }
-  if (!files) {
-    return NextResponse.json({ error: 'files (project context) are required in the request body' }, { status: 400 });
+  if (!files && developerResult) { // Files might be optional if it's just a general query to QA
+     console.warn('[QAAgent] Files (project context) are not provided, but developerResult is. QA might need context.');
   }
 
-  // Compose prompt for QA LLM
   const prompt = `
 ${QA_GUARDRAIL_PROMPT}
-Project Files: ${JSON.stringify(files).slice(0, 2000)} 
-Developer Agent Output: ${typeof developerResult === 'string' ? developerResult : JSON.stringify(developerResult)}
+${files ? `Project Files: ${JSON.stringify(files).slice(0, 2000)}` : 'No specific project files provided.'}
+Developer Agent Output / User Instruction: ${typeof mainInput === 'string' ? mainInput : JSON.stringify(mainInput)}
 `;
 
   try {
@@ -46,27 +61,66 @@ Developer Agent Output: ${typeof developerResult === 'string' ? developerResult 
         'Authorization': `Bearer ${QA_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ prompt }) // Assuming the target LLM API expects a 'prompt' field
+      body: JSON.stringify({ prompt })
     });
 
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
       console.error(`[QAAgent] QA LLM call failed with status ${llmResponse.status}:`, errorText);
-      return NextResponse.json({ error: 'QA LLM call failed', details: errorText }, { status: llmResponse.status });
+      const errorResponse = {
+        from: "qa",
+        content: `QA Agent: LLM call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}`,
+        timestamp: Date.now(),
+      };
+      return NextResponse.json(errorResponse, { status: llmResponse.status });
     }
 
-    const result = await llmResponse.json();
+    const llmCallResult = await llmResponse.json();
+    let extractedContent: string;
 
-    // Audit log (console or persistent)
+    if (typeof llmCallResult === 'string') {
+      extractedContent = llmCallResult;
+    } else if (llmCallResult && typeof llmCallResult.text === 'string') {
+      extractedContent = llmCallResult.text;
+    } else if (llmCallResult && typeof llmCallResult.response === 'string') {
+      extractedContent = llmCallResult.response;
+    } else if (llmCallResult && llmCallResult.choices && Array.isArray(llmCallResult.choices) && llmCallResult.choices[0] && typeof llmCallResult.choices[0].message?.content === 'string') {
+      extractedContent = llmCallResult.choices[0].message.content; // OpenAI-like
+    } else if (llmCallResult && llmCallResult.choices && Array.isArray(llmCallResult.choices) && llmCallResult.choices[0] && typeof llmCallResult.choices[0].text === 'string') {
+      extractedContent = llmCallResult.choices[0].text; // Older OpenAI-like
+    } else if (llmCallResult && llmCallResult.candidates && Array.isArray(llmCallResult.candidates) && llmCallResult.candidates[0]?.content?.parts?.[0]?.text) {
+      extractedContent = llmCallResult.candidates[0].content.parts[0].text; // Gemini-like
+    } else if (llmCallResult && typeof llmCallResult.result === 'string'){
+      extractedContent = llmCallResult.result;
+    } else if (llmCallResult && typeof llmCallResult.result === 'object' && typeof llmCallResult.result.text === 'string'){
+      extractedContent = llmCallResult.result.text;
+    }
+     else {
+      extractedContent = JSON.stringify(llmCallResult);
+    }
+    
+    const agentResponseMessage = {
+      from: "qa",
+      content: extractedContent,
+      timestamp: Date.now(),
+    };
+
     console.log('[QAAgent] Interaction Log:', {
-      requestBody: { filesCount: Object.keys(files).length, developerResultSummary: String(developerResult).slice(0,100) + '...' }, // Avoid logging potentially large 'files' content directly
+      requestBody: { filesCount: files ? Object.keys(files).length : 0, mainInputSummary: String(mainInput).slice(0,100) + '...' },
       composedPromptLength: prompt.length,
-      qaResult: result // Consider summarizing or truncating qaResult if it can be very large
+      llmRawResponse: llmCallResult,
+      formattedAgentResponse: agentResponseMessage
     });
 
-    return NextResponse.json({ result });
+    return NextResponse.json(agentResponseMessage);
+
   } catch (error: any) {
-    console.error('[QAAgent] Unexpected error during QA LLM call or processing:', error);
-    return NextResponse.json({ error: 'Internal Server Error during QA processing', details: error.message || String(error) }, { status: 500 });
+    console.error('[QAAgent] Unexpected error:', error);
+    const errorResponse = {
+      from: "qa",
+      content: `QA Agent: Internal Server Error. Details: ${error.message || String(error)}`,
+      timestamp: Date.now(),
+    };
+    return NextResponse.json(errorResponse, { status: 500 });
   }
 }

@@ -9,92 +9,96 @@ export async function POST(req: NextRequest) {
     requestBody = await req.json();
   } catch (error) {
     console.error('[DispatchInstruction] Invalid JSON body:', error);
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    return NextResponse.json({ result: { chatLog: [{ from: 'system', content: 'Error: Invalid JSON body provided to dispatcher.', timestamp: Date.now() }] }}, { status: 400 });
   }
 
   const { agentType, instruction, files, language, framework } = requestBody;
 
   if (!agentType || !instruction) {
-    return NextResponse.json({ error: 'Missing agentType or instruction' }, { status: 400 });
+    console.error('[DispatchInstruction] Missing agentType or instruction');
+    return NextResponse.json({ result: { chatLog: [{ from: 'system', content: 'Error: Missing agentType or instruction in dispatch request.', timestamp: Date.now() }] }}, { status: 400 });
   }
 
   let agentUrlPath = '';
+  let agentIdentifier: 'developer' | 'qa' | 'system' = 'system';
+
   if (agentType === 'developer') {
     agentUrlPath = '/api/developer-agent';
+    agentIdentifier = 'developer';
   } else if (agentType === 'qa') {
     agentUrlPath = '/api/qa-agent';
+    agentIdentifier = 'qa';
   } else {
     console.error(`[DispatchInstruction] Invalid agent type: ${agentType}`);
-    return NextResponse.json({ error: 'Invalid agent type' }, { status: 400 });
+    return NextResponse.json({ result: { chatLog: [{ from: 'system', content: `Error: Invalid agent type '${agentType}'.`, timestamp: Date.now() }] }}, { status: 400 });
   }
 
-  // Construct the full URL for the internal fetch
-  // req.url gives the full URL of the current request, e.g., http://localhost:9002/api/dispatch-instruction
-  // We need to replace the path part with the target agent's path.
   const currentUrl = new URL(req.url);
   const agentFullUrl = `${currentUrl.origin}${agentUrlPath}`;
 
   const agentPayload: Record<string, any> = {
-    featureRequest: instruction, // For Developer Agent
+    featureRequest: instruction, // Common field for instruction
     files,
     language,
     framework,
+    // If QA agent needs specific 'developerResult', it should be handled here or by QA agent looking at 'featureRequest'
   };
-
-  // For QA Agent, the original example for qa-agent API expects 'developerResult'
-  // but the dispatch example sends 'featureRequest'.
-  // We are sticking to the dispatch example, so QA agent will receive 'featureRequest'.
-  // If the QA agent specifically needs 'developerResult', it might need an update,
-  // or the dispatcher logic here would need to be more complex to map fields.
-  // For now, sending 'featureRequest' as 'instruction' to QA agent as well.
-  if (agentType === 'qa') {
-    // If QA agent strictly needs 'developerResult', this should be:
-    // agentPayload.developerResult = instruction;
-    // delete agentPayload.featureRequest; 
-    // However, sticking to the provided dispatcher example which sends 'featureRequest'
-    // to both.
-  }
-
 
   try {
     const agentRes = await fetch(agentFullUrl, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        // Potentially forward other relevant headers if needed
       },
       body: JSON.stringify(agentPayload),
     });
 
-    const resultText = await agentRes.text(); // Read response text first for better error reporting
-    let result;
-    try {
-        result = JSON.parse(resultText);
-    } catch (e) {
-        console.error(`[DispatchInstruction] Agent ${agentType} response is not valid JSON:`, resultText);
-        return NextResponse.json({ error: `Agent ${agentType} call failed: Non-JSON response`, details: resultText }, { status: 502 }); // Bad Gateway
-    }
+    const agentResultJson = await agentRes.json();
 
-    if (!agentRes.ok) {
-      console.error(`[DispatchInstruction] Agent ${agentType} call failed with status ${agentRes.status}:`, result);
-      return NextResponse.json({ error: `Agent ${agentType} call failed`, details: result }, { status: agentRes.status });
+    // The agent (developer-agent or qa-agent) is now expected to return:
+    // { from: "developer" | "qa", content: "...", timestamp: number }
+    // If it doesn't, we wrap its response or error.
+    
+    let chatLogEntry;
+    if (agentRes.ok && agentResultJson && typeof agentResultJson.from === 'string' && typeof agentResultJson.content === 'string') {
+      chatLogEntry = agentResultJson;
+    } else if (agentRes.ok && agentResultJson) { // Agent returned 200 but not in expected chat format
+      console.warn(`[DispatchInstruction] Agent ${agentType} responded with 200 but unexpected format:`, agentResultJson);
+      chatLogEntry = {
+        from: agentIdentifier,
+        content: `Agent responded with an unexpected format: ${JSON.stringify(agentResultJson).slice(0, 500)}`,
+        timestamp: Date.now(),
+      };
+    } 
+    else { // Agent call failed or returned error
+      console.error(`[DispatchInstruction] Agent ${agentType} call failed or returned error. Status: ${agentRes.status}. Response:`, agentResultJson);
+      const errorContent = agentResultJson?.content || agentResultJson?.error || JSON.stringify(agentResultJson) || 'Unknown error from agent.';
+      chatLogEntry = {
+        from: agentIdentifier, // Use agentIdentifier if available, otherwise system
+        content: `Error interacting with ${agentType} agent (Status: ${agentRes.status}): ${String(errorContent).slice(0, 500)}`,
+        timestamp: Date.now(),
+      };
     }
-
-    // Log all interactions
+    
     console.log('[InstructionDispatch] Interaction Log:', {
       requestTimestamp: new Date().toISOString(),
       agentType,
-      instruction,
-      filesCount: files ? Object.keys(files).length : 0, // Avoid logging potentially large 'files' content
+      instructionSummary: String(instruction).slice(0,100) + '...',
+      filesCount: files ? Object.keys(files).length : 0,
       language,
       framework,
-      agentResult: result // Consider summarizing or truncating if very large
+      agentResponseForChat: chatLogEntry 
     });
 
-    return NextResponse.json({ result });
+    return NextResponse.json({ result: { chatLog: [chatLogEntry] } });
 
   } catch (error: any) {
     console.error(`[DispatchInstruction] Error calling agent ${agentType} at ${agentFullUrl}:`, error);
-    return NextResponse.json({ error: 'Internal Server Error during agent dispatch', details: error.message || String(error) }, { status: 500 });
+    const systemError = {
+        from: 'system',
+        content: `Internal Server Error during agent dispatch: ${error.message || String(error)}`,
+        timestamp: Date.now()
+    };
+    return NextResponse.json({ result: { chatLog: [systemError] } }, { status: 500 });
   }
 }
