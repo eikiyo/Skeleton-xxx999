@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -27,6 +28,7 @@ import { InstructionInput } from './instruction-input';
 import { AgentPanels } from './agent-panels';
 import type { FileSystem, LogEntry, AgentType } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { Card } from '@/components/ui/card';
 
 interface MainLayoutProps {
   // Git State
@@ -170,6 +172,8 @@ export function MainLayout(props: MainLayoutProps) {
                   setSelectedAgent={props.setSelectedAgent}
                   instruction={props.instruction}
                   currentCode={props.currentFileContent}
+                  selectedFilePath={props.selectedFilePath}
+                  setFileContent={props.setFileContent}
                   addLog={props.addLog}
                   applyPatch={props.applyPatch}
                 />

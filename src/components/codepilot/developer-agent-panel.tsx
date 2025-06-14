@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from 'react';
@@ -8,14 +9,16 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { generateCodeSnippet, GenerateCodeSnippetOutput }  from '@/ai/flows/generate-code-snippet';
-import { Loader2, Copy } from 'lucide-react';
+import { Loader2, Copy, CheckSquare } from 'lucide-react';
 
 interface DeveloperAgentPanelProps {
   instruction: string;
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
+  selectedFilePath: string | null;
+  setFileContent: (path: string, content: string) => void;
 }
 
-export function DeveloperAgentPanel({ instruction, addLog }: DeveloperAgentPanelProps) {
+export function DeveloperAgentPanel({ instruction, addLog, selectedFilePath, setFileContent }: DeveloperAgentPanelProps) {
   const [language, setLanguage] = useState('typescript');
   const [framework, setFramework] = useState('nextjs');
   const [existingCode, setExistingCode] = useState('');
@@ -53,6 +56,20 @@ export function DeveloperAgentPanel({ instruction, addLog }: DeveloperAgentPanel
     navigator.clipboard.writeText(text)
       .then(() => addLog("Code copied to clipboard!", "success"))
       .catch(err => addLog("Failed to copy code: " + err, "error"));
+  };
+
+  const handleApplyToEditor = () => {
+    if (output?.codeSnippet && selectedFilePath) {
+      setFileContent(selectedFilePath, output.codeSnippet);
+      addLog(`Developer Agent: Applied generated code to ${selectedFilePath}.`, "success");
+    } else {
+      if (!selectedFilePath) {
+        addLog("Developer Agent: No file selected in the editor to apply code to. Please select a file.", "error");
+      }
+      if (!output?.codeSnippet) {
+         addLog("Developer Agent: No code has been generated yet to apply.", "error");
+      }
+    }
   };
 
   return (
@@ -98,9 +115,20 @@ export function DeveloperAgentPanel({ instruction, addLog }: DeveloperAgentPanel
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label>Code Snippet</Label>
-                <Button variant="ghost" size="sm" onClick={() => handleCopyToClipboard(output.codeSnippet)}>
-                  <Copy className="h-4 w-4 mr-2" /> Copy
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => handleCopyToClipboard(output.codeSnippet)}>
+                    <Copy className="h-4 w-4 mr-2" /> Copy Snippet
+                  </Button>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    onClick={handleApplyToEditor}
+                    disabled={!selectedFilePath || !output.codeSnippet}
+                    title={!selectedFilePath ? "Select a file in the editor to apply code" : "Apply to selected file"}
+                  >
+                    <CheckSquare className="h-4 w-4 mr-2" /> Apply to Editor
+                  </Button>
+                </div>
               </div>
               <ScrollArea className="h-64 w-full rounded-md border p-4 bg-background">
                 <pre className="font-code text-sm whitespace-pre-wrap">{output.codeSnippet}</pre>

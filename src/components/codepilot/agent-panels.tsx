@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -13,6 +14,8 @@ interface AgentPanelsProps {
   currentCode: string;
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
   applyPatch: (patch: string) => void;
+  selectedFilePath: string | null; 
+  setFileContent: (path: string, content: string) => void;
 }
 
 export function AgentPanels({
@@ -21,7 +24,9 @@ export function AgentPanels({
   instruction,
   currentCode,
   addLog,
-  applyPatch
+  applyPatch,
+  selectedFilePath,
+  setFileContent
 }: AgentPanelsProps) {
   
   const handleTabChange = (value: string) => {
@@ -35,10 +40,19 @@ export function AgentPanels({
         <TabsTrigger value="qa">QA Agent</TabsTrigger>
       </TabsList>
       <TabsContent value="developer">
-        <DeveloperAgentPanel instruction={instruction} addLog={addLog} />
+        <DeveloperAgentPanel 
+          instruction={instruction} 
+          addLog={addLog}
+          selectedFilePath={selectedFilePath}
+          setFileContent={setFileContent}
+        />
       </TabsContent>
       <TabsContent value="qa">
-        <QAAgentPanel currentCode={currentCode} addLog={addLog} applyPatch={applyPatch} />
+        <QAAgentPanel 
+          currentCode={currentCode} 
+          addLog={addLog} 
+          applyPatch={applyPatch} 
+        />
       </TabsContent>
     </Tabs>
   );
