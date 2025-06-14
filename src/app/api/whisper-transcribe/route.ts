@@ -3,13 +3,14 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 
-const WHISPER_API_URL = process.env.WHISPER_API_URL;
-const WHISPER_API_KEY = process.env.WHISPER_API_KEY;
+const OPENAI_API_KEY = "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";
+const OPENAI_API_URL = "https://api.openai.com/v1/audio/transcriptions";
 
 export async function POST(req: NextRequest) {
-  if (!WHISPER_API_URL || !WHISPER_API_KEY) {
-    console.error('[WhisperTranscribe] Missing required environment variables (WHISPER_API_URL, WHISPER_API_KEY)');
-    return NextResponse.json({ error: 'Server configuration error: Missing Whisper API environment variables.' }, { status: 500 });
+  if (req.method !== 'POST') {
+    // NextResponse.json automatically sets the method to GET in its response headers if not specified.
+    // For a 405, it's more conventional to explicitly set allowed methods if needed, or just return the status.
+    return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
   }
 
   let body;
@@ -28,19 +29,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const buffer = Buffer.from(audioBase64, 'base64');
-    const audioBlob = new Blob([buffer], { type: mimeType });
     
     const form = new FormData();
-    form.append('file', audioBlob, 'audio.wav'); // filename can be arbitrary, e.g., audio.wav or audio.mp3 depending on actual mimeType
+    // Use Blob as per provided example, which is good practice for fetch with FormData
+    form.append('file', new Blob([buffer], { type: mimeType }), 'audio.webm'); 
     form.append('model', 'whisper-1');
 
-    const whisperResponse = await fetch(WHISPER_API_URL, {
+    const whisperResponse = await fetch(OPENAI_API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${WHISPER_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         // 'Content-Type' is automatically set by fetch when body is FormData
       },
-      body: form,
+      body: form, // Pass FormData directly
     });
 
     if (!whisperResponse.ok) {
@@ -50,15 +51,16 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await whisperResponse.json();
+    const transcript = result?.text || "";
 
     // Audit log (simple console log; replace with persistent logging for production)
     console.log('[WhisperTranscribe] Interaction Log:', {
       audioLength: buffer.length,
       mimeType: mimeType,
-      transcript: result.text,
+      transcript: transcript,
     });
 
-    return NextResponse.json({ transcript: result.text });
+    return NextResponse.json({ transcript: transcript });
 
   } catch (error: any) {
     console.error('[WhisperTranscribe] Unexpected error during transcription process:', error);
