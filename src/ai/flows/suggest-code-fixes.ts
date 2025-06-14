@@ -10,22 +10,10 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {SuggestCodeFixesInputSchema, SuggestCodeFixesOutputSchema} from '@/ai/schemas';
+import type {z} from 'genkit';
 
-const SuggestCodeFixesInputSchema = z.object({
-  code: z.string().describe('The code to be analyzed.'),
-  testResults: z.string().describe('The results of running tests on the code.'),
-});
 export type SuggestCodeFixesInput = z.infer<typeof SuggestCodeFixesInputSchema>;
-
-const SuggestCodeFixesOutputSchema = z.object({
-  fixes: z.array(
-    z.object({
-      description: z.string().describe('A description of the suggested fix.'),
-      patch: z.string().describe('A patch representing the suggested fix. This patch should be in standard diff format.'),
-    })
-  ).describe('An array of suggested fixes.'),
-});
 export type SuggestCodeFixesOutput = z.infer<typeof SuggestCodeFixesOutputSchema>;
 
 export async function suggestCodeFixes(input: SuggestCodeFixesInput): Promise<SuggestCodeFixesOutput> {
@@ -75,4 +63,3 @@ const suggestCodeFixesFlow = ai.defineFlow(
     return output!;
   }
 );
-

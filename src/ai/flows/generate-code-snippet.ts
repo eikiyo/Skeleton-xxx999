@@ -11,22 +11,11 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {GenerateCodeSnippetInputSchema, GenerateCodeSnippetOutputSchema} from '@/ai/schemas';
+import type {z} from 'genkit';
 
-const GenerateCodeSnippetInputSchema = z.object({
-  featureRequest: z.string().describe('A high-level description of the feature to implement.'),
-  programmingLanguage: z.string().describe('The programming language for the code snippet.'),
-  framework: z.string().optional().describe('The framework or library to use (e.g., React, Angular, Vue).'),
-  existingCodeContext: z.string().optional().describe('Existing code that provides context for the new snippet.'),
-});
 
 export type GenerateCodeSnippetInput = z.infer<typeof GenerateCodeSnippetInputSchema>;
-
-const GenerateCodeSnippetOutputSchema = z.object({
-  codeSnippet: z.string().describe('The generated code snippet or file template.'),
-  explanation: z.string().describe('A brief explanation of the generated code.'),
-});
-
 export type GenerateCodeSnippetOutput = z.infer<typeof GenerateCodeSnippetOutputSchema>;
 
 export async function generateCodeSnippet(input: GenerateCodeSnippetInput): Promise<GenerateCodeSnippetOutput> {
@@ -43,6 +32,10 @@ const prompt = ai.definePrompt({
   2.  **Repository Context**: If existing code context is provided, make sure the new code integrates well and is consistent with it.
   3.  **Security Policies**: Generate secure code. Avoid common vulnerabilities (e.g., XSS, SQL injection). Do not include secrets or API keys in the code.
   4.  **Clarity and Maintainability**: Produce code that is clear, well-commented where necessary (but avoid excessive comments), and maintainable.
+  {{#if qaFeedback}}
+  5.  **Incorporate QA Feedback**: Review the following feedback from the QA Agent and incorporate the necessary changes and improvements into your code generation.
+      QA Feedback: {{{qaFeedback}}}
+  {{/if}}
 
   User's Request Details:
   Feature Request: {{{featureRequest}}}
@@ -65,4 +58,3 @@ const generateCodeSnippetFlow = ai.defineFlow(
     return output!;
   }
 );
-
