@@ -3,14 +3,17 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 
-const OPENAI_API_KEY = "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";
 const OPENAI_API_URL = "https://api.openai.com/v1/audio/transcriptions";
 
 export async function POST(req: NextRequest) {
   if (req.method !== 'POST') {
-    // NextResponse.json automatically sets the method to GET in its response headers if not specified.
-    // For a 405, it's more conventional to explicitly set allowed methods if needed, or just return the status.
     return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
+  }
+
+  const OPENAI_API_KEY = process.env.OPEN_AI_KEY;
+  if (!OPENAI_API_KEY) {
+    console.error('[WhisperTranscribe] OPEN_AI_KEY not set in environment.');
+    return NextResponse.json({ error: "Server configuration error: OPEN_AI_KEY not set." }, { status: 500 });
   }
 
   let body;
@@ -57,7 +60,7 @@ export async function POST(req: NextRequest) {
     console.log('[WhisperTranscribe] Interaction Log:', {
       audioLength: buffer.length,
       mimeType: mimeType,
-      transcript: transcript,
+      transcriptLength: transcript.length, // Log length instead of full transcript for brevity
     });
 
     return NextResponse.json({ transcript: transcript });
