@@ -25,6 +25,7 @@ import { AgentPanels } from './agent-panels';
 import type { FileSystem, LogEntry, AgentType } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
   // Git State
@@ -137,44 +138,49 @@ export function MainLayout(props: MainLayoutProps) {
         </header>
 
         <div className="flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto">
-          {/* Left Column (Sidebar Content) or Main Content on Mobile */}
-          <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
-            {activeSidebarTab === 'agents' && (
-              <InstructionInput
-                instruction={props.instruction}
-                setInstruction={props.setInstruction}
-                onSubmit={props.submitInstruction}
-                isSubmitting={props.isSubmittingInstruction}
-                selectedAgent={props.selectedAgent}
-              />
-            )}
-             {activeSidebarTab === 'git' && (
-              <GitControls
-                repoUrl={props.repoUrl}
-                setRepoUrl={props.setRepoUrl}
-                token={props.token}
-                setToken={props.setToken}
-                onClone={props.onClone}
-                onStageAll={props.onStageAll}
-                onCommit={props.onCommit}
-                onPush={props.onPush}
-                isCloned={props.isCloned}
-              />
-            )}
-            {activeSidebarTab === 'files' && (
-              <Card className="h-full shadow-sm">
-                <FileExplorer
-                  files={props.files}
-                  selectedFilePath={props.selectedFilePath}
-                  onFileSelect={props.onFileSelect}
+          {/* Left Column (Sidebar Content) - Hidden in Chat mode */}
+          {activeSidebarTab !== 'chat' && (
+            <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
+              {activeSidebarTab === 'agents' && (
+                <InstructionInput
+                  instruction={props.instruction}
+                  setInstruction={props.setInstruction}
+                  onSubmit={props.submitInstruction}
+                  isSubmitting={props.isSubmittingInstruction}
+                  selectedAgent={props.selectedAgent}
                 />
-              </Card>
-            )}
-            {/* If chat tab is active, this column is empty, InstructionInput is moved to center panel */}
-          </div>
+              )}
+              {activeSidebarTab === 'git' && (
+                <GitControls
+                  repoUrl={props.repoUrl}
+                  setRepoUrl={props.setRepoUrl}
+                  token={props.token}
+                  setToken={props.setToken}
+                  onClone={props.onClone}
+                  onStageAll={props.onStageAll}
+                  onCommit={props.onCommit}
+                  onPush={props.onPush}
+                  isCloned={props.isCloned}
+                />
+              )}
+              {activeSidebarTab === 'files' && (
+                <Card className="h-full shadow-sm">
+                  <FileExplorer
+                    files={props.files}
+                    selectedFilePath={props.selectedFilePath}
+                    onFileSelect={props.onFileSelect}
+                  />
+                </Card>
+              )}
+            </div>
+          )}
 
           {/* Center Column (Agent Panels / Code Editor / Chat Interface) */}
-          <div className="md:col-span-2 flex flex-col h-full overflow-y-auto">
+          {/* Takes full width in chat mode */}
+          <div className={cn(
+            "flex flex-col h-full overflow-y-auto",
+            activeSidebarTab === 'chat' ? "md:col-span-3" : "md:col-span-2"
+          )}>
             {activeSidebarTab === 'agents' ? (
                 <AgentPanels
                   selectedAgent={props.selectedAgent}
@@ -235,4 +241,3 @@ export function MainLayout(props: MainLayoutProps) {
     </SidebarProvider>
   );
 }
-
