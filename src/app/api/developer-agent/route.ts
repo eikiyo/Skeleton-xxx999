@@ -1,26 +1,18 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 
-const OPEN_SOURCE_LLM_API_URL = process.env.DEVELOPER_API_URL;
-const LLM_API_KEY = process.env.DEVELOPER_API_KEY;
-const GUARDRAIL_PROMPT = process.env.DEVELOPER_GUARDRAIL_PROMPT;
+const OPENROUTER_API_KEY = "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";
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_MODEL = "qwen/qwen3-235b-a22b:free"; // Corrected model name as per latest
+// const OPENROUTER_MODEL = "qwen/qwen-2-72b-instruct"; // Previous model if needed
+
 
 export async function POST(req: NextRequest) {
-  if (!OPEN_SOURCE_LLM_API_URL || !LLM_API_KEY || !GUARDRAIL_PROMPT) {
-    console.error('[DeveloperAgent] Missing required environment variables (DEVELOPER_API_URL, DEVELOPER_API_KEY, DEVELOPER_GUARDRAIL_PROMPT)');
-    const errorResponse = {
-      from: "developer",
-      content: 'Server configuration error: Missing required environment variables for Developer Agent.',
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 500 });
-  }
-
   let body;
   try {
     body = await req.json();
   } catch (error) {
-    console.error('[DeveloperAgent] Invalid JSON body:', error);
+    console.error('[DeveloperAgent-Qwen] Invalid JSON body:', error);
     const errorResponse = {
       from: "developer",
       content: 'Invalid JSON body received by Developer Agent.',
@@ -29,90 +21,69 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errorResponse, { status: 400 });
   }
 
-  const { featureRequest, files, language, framework } = body;
+  const { prompt, context } = body; // Expect 'prompt' and 'context'
 
-  if (!featureRequest) {
+  if (!prompt) {
     const errorResponse = {
       from: "developer",
-      content: 'featureRequest is required in the request body for Developer Agent.',
+      content: "'prompt' (featureRequest/instruction) is required.",
       timestamp: Date.now(),
     };
     return NextResponse.json(errorResponse, { status: 400 });
   }
 
-  const prompt = `
-${GUARDRAIL_PROMPT}
-User Feature Request: ${featureRequest}
-${files ? `\nExisting Project Context:\n${JSON.stringify(files).slice(0, 2000)}` : ''}
-${language ? `\nPreferred Language: ${language}` : ''}
-${framework ? `\nFramework: ${framework}` : ''}
-`;
+  const messages = [
+    { role: "system", content: "Always strictly follow the user’s instructions and coding standards. Be concise and clear in your responses. Provide code when asked." },
+    { role: "user", content: prompt + (context ? `\n\nExisting Project Context:\n${context}` : "") }
+  ];
 
   try {
-    const llmResponse = await fetch(OPEN_SOURCE_LLM_API_URL, {
-      method: 'POST',
+    const llmResponse = await fetch(OPENROUTER_API_URL, {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${LLM_API_KEY}`,
-        'Content-Type': 'application/json'
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://your-app-url.com", // Optional: OpenRouter recommends adding referer
+        "X-Title": "CodePilot Developer Agent" // Optional: For OpenRouter logging
       },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages
+      })
     });
 
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
-      console.error(`[DeveloperAgent] LLM call failed with status ${llmResponse.status}:`, errorText);
+      console.error(`[DeveloperAgent-Qwen] LLM call failed with status ${llmResponse.status}:`, errorText);
       const errorResponse = {
         from: "developer",
-        content: `Developer Agent: LLM call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}`,
+        content: `Developer Agent (Qwen) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}`,
         timestamp: Date.now(),
       };
       return NextResponse.json(errorResponse, { status: llmResponse.status });
     }
 
-    const llmCallResult = await llmResponse.json();
-    let extractedContent: string;
-
-    if (typeof llmCallResult === 'string') {
-      extractedContent = llmCallResult;
-    } else if (llmCallResult && typeof llmCallResult.text === 'string') {
-      extractedContent = llmCallResult.text;
-    } else if (llmCallResult && typeof llmCallResult.response === 'string') {
-      extractedContent = llmCallResult.response;
-    } else if (llmCallResult && llmCallResult.choices && Array.isArray(llmCallResult.choices) && llmCallResult.choices[0] && typeof llmCallResult.choices[0].message?.content === 'string') {
-      extractedContent = llmCallResult.choices[0].message.content; // OpenAI-like
-    } else if (llmCallResult && llmCallResult.choices && Array.isArray(llmCallResult.choices) && llmCallResult.choices[0] && typeof llmCallResult.choices[0].text === 'string') {
-      extractedContent = llmCallResult.choices[0].text; // Older OpenAI-like
-    } else if (llmCallResult && llmCallResult.candidates && Array.isArray(llmCallResult.candidates) && llmCallResult.candidates[0]?.content?.parts?.[0]?.text) {
-      extractedContent = llmCallResult.candidates[0].content.parts[0].text; // Gemini-like
-    } else if (llmCallResult && typeof llmCallResult.result === 'string'){
-      extractedContent = llmCallResult.result;
-    } else if (llmCallResult && typeof llmCallResult.result === 'object' && typeof llmCallResult.result.text === 'string'){
-      extractedContent = llmCallResult.result.text;
-    }
-     else {
-      extractedContent = JSON.stringify(llmCallResult);
-    }
+    const data = await llmResponse.json();
+    const reply = data?.choices?.[0]?.message?.content || "No content in response from LLM.";
+    
+    console.log("[DeveloperAgent-Qwen] Interaction Log:", {
+      requestBody: { promptLength: prompt.length, contextLength: context?.length || 0 },
+      llmRawResponse: data, // Log raw response for detailed audit
+      extractedReply: reply
+    });
 
     const agentResponseMessage = {
       from: "developer",
-      content: extractedContent,
+      content: reply,
       timestamp: Date.now(),
     };
-
-    console.log('[DeveloperAgent] Interaction Log:', {
-      requestBody: { featureRequest, language, framework, filesCount: files ? Object.keys(files).length : 0 },
-      composedPromptLength: prompt.length,
-      llmRawResponse: llmCallResult,
-      formattedAgentResponse: agentResponseMessage
-    });
-
     return NextResponse.json(agentResponseMessage);
 
   } catch (error: any) {
-    console.error('[DeveloperAgent] Unexpected error:', error);
+    console.error('[DeveloperAgent-Qwen] Unexpected error:', error);
     const errorResponse = {
       from: "developer",
-      content: `Developer Agent: Internal Server Error. Details: ${error.message || String(error)}`,
+      content: `Developer Agent (Qwen): Internal Server Error. Details: ${error.message || String(error)}`,
       timestamp: Date.now(),
     };
     return NextResponse.json(errorResponse, { status: 500 });

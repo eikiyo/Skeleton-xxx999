@@ -1,26 +1,16 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 
-const QA_API_URL = process.env.QA_AGENT_API_URL;
-const QA_API_KEY = process.env.QA_AGENT_API_KEY;
-const QA_GUARDRAIL_PROMPT = process.env.QA_GUARDRAIL_PROMPT;
+const OPENROUTER_API_KEY = "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";
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_MODEL = "deepseek/deepseek-chat"; // Using the general model as v3 not found in docs for free tier
 
 export async function POST(req: NextRequest) {
-  if (!QA_API_URL || !QA_API_KEY || !QA_GUARDRAIL_PROMPT) {
-    console.error('[QAAgent] Missing required environment variables (QA_AGENT_API_URL, QA_AGENT_API_KEY, QA_GUARDRAIL_PROMPT)');
-    const errorResponse = {
-      from: "qa",
-      content: 'Server configuration error: Missing required QA agent environment variables.',
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 500 });
-  }
-
   let body;
   try {
     body = await req.json();
   } catch (error) {
-    console.error('[QAAgent] Invalid JSON body:', error);
+    console.error('[QAAgent-DeepSeek] Invalid JSON body:', error);
     const errorResponse = {
       from: "qa",
       content: 'Invalid JSON body received by QA Agent.',
@@ -29,96 +19,69 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errorResponse, { status: 400 });
   }
 
-  const { files, developerResult, featureRequest } = body; // featureRequest might be passed by dispatcher
+  const { prompt, context } = body; // Expect 'prompt' and 'context'
 
-  // QA agent might expect 'developerResult' or 'featureRequest' (instruction)
-  // Based on dispatcher, 'featureRequest' holds the instruction.
-  // We prioritize 'developerResult' if available, otherwise use 'featureRequest'.
-  const mainInput = developerResult || featureRequest;
-
-  if (!mainInput) {
+  if (!prompt) {
     const errorResponse = {
       from: "qa",
-      content: 'developerResult or featureRequest (instruction) is required in the request body for QA Agent.',
+      content: "'prompt' (instruction/developer output) is required.",
       timestamp: Date.now(),
     };
     return NextResponse.json(errorResponse, { status: 400 });
   }
-  if (!files && developerResult) { // Files might be optional if it's just a general query to QA
-     console.warn('[QAAgent] Files (project context) are not provided, but developerResult is. QA might need context.');
-  }
 
-  const prompt = `
-${QA_GUARDRAIL_PROMPT}
-${files ? `Project Files: ${JSON.stringify(files).slice(0, 2000)}` : 'No specific project files provided.'}
-Developer Agent Output / User Instruction: ${typeof mainInput === 'string' ? mainInput : JSON.stringify(mainInput)}
-`;
+  const messages = [
+    { role: "system", content: "You are a critical QA agent. Always verify, test, and never allow unsafe changes. Request clarification if instructions are ambiguous. Be concise and clear." },
+    { role: "user", content: prompt + (context ? `\n\nProject Context/Files:\n${context}` : "") }
+  ];
 
   try {
-    const llmResponse = await fetch(QA_API_URL, {
-      method: 'POST',
+    const llmResponse = await fetch(OPENROUTER_API_URL, {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${QA_API_KEY}`,
-        'Content-Type': 'application/json'
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://your-app-url.com", // Optional
+        "X-Title": "CodePilot QA Agent" // Optional
       },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages
+      })
     });
 
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
-      console.error(`[QAAgent] QA LLM call failed with status ${llmResponse.status}:`, errorText);
+      console.error(`[QAAgent-DeepSeek] LLM call failed with status ${llmResponse.status}:`, errorText);
       const errorResponse = {
         from: "qa",
-        content: `QA Agent: LLM call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}`,
+        content: `QA Agent (DeepSeek) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}`,
         timestamp: Date.now(),
       };
       return NextResponse.json(errorResponse, { status: llmResponse.status });
     }
 
-    const llmCallResult = await llmResponse.json();
-    let extractedContent: string;
+    const data = await llmResponse.json();
+    const reply = data?.choices?.[0]?.message?.content || "No content in response from LLM.";
 
-    if (typeof llmCallResult === 'string') {
-      extractedContent = llmCallResult;
-    } else if (llmCallResult && typeof llmCallResult.text === 'string') {
-      extractedContent = llmCallResult.text;
-    } else if (llmCallResult && typeof llmCallResult.response === 'string') {
-      extractedContent = llmCallResult.response;
-    } else if (llmCallResult && llmCallResult.choices && Array.isArray(llmCallResult.choices) && llmCallResult.choices[0] && typeof llmCallResult.choices[0].message?.content === 'string') {
-      extractedContent = llmCallResult.choices[0].message.content; // OpenAI-like
-    } else if (llmCallResult && llmCallResult.choices && Array.isArray(llmCallResult.choices) && llmCallResult.choices[0] && typeof llmCallResult.choices[0].text === 'string') {
-      extractedContent = llmCallResult.choices[0].text; // Older OpenAI-like
-    } else if (llmCallResult && llmCallResult.candidates && Array.isArray(llmCallResult.candidates) && llmCallResult.candidates[0]?.content?.parts?.[0]?.text) {
-      extractedContent = llmCallResult.candidates[0].content.parts[0].text; // Gemini-like
-    } else if (llmCallResult && typeof llmCallResult.result === 'string'){
-      extractedContent = llmCallResult.result;
-    } else if (llmCallResult && typeof llmCallResult.result === 'object' && typeof llmCallResult.result.text === 'string'){
-      extractedContent = llmCallResult.result.text;
-    }
-     else {
-      extractedContent = JSON.stringify(llmCallResult);
-    }
+    console.log("[QAAgent-DeepSeek] Interaction Log:", {
+      requestBody: { promptLength: prompt.length, contextLength: context?.length || 0 },
+      llmRawResponse: data, // Log raw response
+      extractedReply: reply
+    });
     
     const agentResponseMessage = {
       from: "qa",
-      content: extractedContent,
+      content: reply,
       timestamp: Date.now(),
     };
-
-    console.log('[QAAgent] Interaction Log:', {
-      requestBody: { filesCount: files ? Object.keys(files).length : 0, mainInputSummary: String(mainInput).slice(0,100) + '...' },
-      composedPromptLength: prompt.length,
-      llmRawResponse: llmCallResult,
-      formattedAgentResponse: agentResponseMessage
-    });
-
     return NextResponse.json(agentResponseMessage);
 
   } catch (error: any) {
-    console.error('[QAAgent] Unexpected error:', error);
+    console.error('[QAAgent-DeepSeek] Unexpected error:', error);
     const errorResponse = {
       from: "qa",
-      content: `QA Agent: Internal Server Error. Details: ${error.message || String(error)}`,
+      content: `QA Agent (DeepSeek): Internal Server Error. Details: ${error.message || String(error)}`,
       timestamp: Date.now(),
     };
     return NextResponse.json(errorResponse, { status: 500 });

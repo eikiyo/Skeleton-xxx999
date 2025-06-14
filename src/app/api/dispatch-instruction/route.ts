@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ result: { chatLog: [{ from: 'system', content: 'Error: Invalid JSON body provided to dispatcher.', timestamp: Date.now() }] }}, { status: 400 });
   }
 
-  const { agentType, instruction, files, language, framework } = requestBody;
+  const { agentType, instruction, files /* language, framework are no longer directly used by new agent handlers */ } = requestBody;
 
   if (!agentType || !instruction) {
     console.error('[DispatchInstruction] Missing agentType or instruction');
@@ -36,12 +36,10 @@ export async function POST(req: NextRequest) {
   const currentUrl = new URL(req.url);
   const agentFullUrl = `${currentUrl.origin}${agentUrlPath}`;
 
-  const agentPayload: Record<string, any> = {
-    featureRequest: instruction, // Common field for instruction
-    files,
-    language,
-    framework,
-    // If QA agent needs specific 'developerResult', it should be handled here or by QA agent looking at 'featureRequest'
+  // New agent handlers expect 'prompt' and 'context'
+  const agentPayload = {
+    prompt: instruction,
+    context: files ? JSON.stringify(files).slice(0, 2000) : undefined, // Pass files as stringified context
   };
 
   try {
@@ -54,27 +52,26 @@ export async function POST(req: NextRequest) {
     });
 
     const agentResultJson = await agentRes.json();
-
-    // The agent (developer-agent or qa-agent) is now expected to return:
-    // { from: "developer" | "qa", content: "...", timestamp: number }
-    // If it doesn't, we wrap its response or error.
     
     let chatLogEntry;
-    if (agentRes.ok && agentResultJson && typeof agentResultJson.from === 'string' && typeof agentResultJson.content === 'string') {
+
+    // New agent handlers return { from: "...", content: "...", timestamp: ... } directly on success
+    // or { from: "...", content: "Error message...", timestamp: ...} on handled error
+    if (agentResultJson && typeof agentResultJson.from === 'string' && typeof agentResultJson.content === 'string') {
       chatLogEntry = agentResultJson;
-    } else if (agentRes.ok && agentResultJson) { // Agent returned 200 but not in expected chat format
-      console.warn(`[DispatchInstruction] Agent ${agentType} responded with 200 but unexpected format:`, agentResultJson);
+    } else if (agentRes.ok && agentResultJson && typeof agentResultJson.reply === 'string') { 
+      // This case is for the immediate {reply: "..."} if agents don't return full chatlog entry yet
+      // This might be redundant if agent handlers are updated to return the full entry
       chatLogEntry = {
         from: agentIdentifier,
-        content: `Agent responded with an unexpected format: ${JSON.stringify(agentResultJson).slice(0, 500)}`,
+        content: agentResultJson.reply,
         timestamp: Date.now(),
       };
-    } 
-    else { // Agent call failed or returned error
+    } else { // Agent call failed (non-2xx) or unexpected response format
       console.error(`[DispatchInstruction] Agent ${agentType} call failed or returned error. Status: ${agentRes.status}. Response:`, agentResultJson);
-      const errorContent = agentResultJson?.content || agentResultJson?.error || JSON.stringify(agentResultJson) || 'Unknown error from agent.';
+      const errorContent = agentResultJson?.content || agentResultJson?.error || agentResultJson?.details || JSON.stringify(agentResultJson) || 'Unknown error from agent.';
       chatLogEntry = {
-        from: agentIdentifier, // Use agentIdentifier if available, otherwise system
+        from: agentIdentifier, 
         content: `Error interacting with ${agentType} agent (Status: ${agentRes.status}): ${String(errorContent).slice(0, 500)}`,
         timestamp: Date.now(),
       };
@@ -84,9 +81,7 @@ export async function POST(req: NextRequest) {
       requestTimestamp: new Date().toISOString(),
       agentType,
       instructionSummary: String(instruction).slice(0,100) + '...',
-      filesCount: files ? Object.keys(files).length : 0,
-      language,
-      framework,
+      contextProvided: !!agentPayload.context,
       agentResponseForChat: chatLogEntry 
     });
 
