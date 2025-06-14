@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 
 type Message = {
-  from: "user" | "developer" | "qa";
+  from: "user" | "developer" | "qa" | "system"; // Added system for potential system messages
   content: string;
   timestamp: number;
 };
@@ -12,12 +12,14 @@ export default function InstructionChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [agent, setAgent] = useState<"developer" | "qa">("developer");
   const [recording, setRecording] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // For both transcription and agent response
 
-  // For voice input
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mimeTypeRef = useRef<string>('');
+
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -25,39 +27,45 @@ export default function InstructionChat() {
 
   useEffect(scrollToBottom, [messages]);
 
-  // Handle text input change
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
   }
 
-  // Switch between Developer and QA
   function handleAgentSwitch(next: "developer" | "qa") {
     setAgent(next);
   }
 
-  // Start or stop voice recording
   async function handleMicClick() {
     if (recording) {
       mediaRecorderRef.current?.stop();
-      // Stream stopping is handled in onstop or useEffect cleanup
+      // Stream stopping and state update is handled in onstop or useEffect cleanup
       return;
     }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      alert("Microphone not supported by your browser.");
-      setMessages(prev => [...prev, {from: 'qa', content: "Microphone not supported by your browser.", timestamp: Date.now()}]);
+      setMessages(prev => [...prev, {from: 'system', content: "Microphone not supported by your browser.", timestamp: Date.now()}]);
       return;
     }
+
+    setInput(''); // Clear input before new recording
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      
       const options = { mimeType: 'audio/webm;codecs=opus' };
       let recorder: MediaRecorder;
+
       if (MediaRecorder.isTypeSupported(options.mimeType)) {
         recorder = new MediaRecorder(stream, options);
-      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        mimeTypeRef.current = options.mimeType;
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) { // Fallback
         recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        mimeTypeRef.current = 'audio/webm';
       } else {
-        alert("No suitable audio recording format supported.");
-        setMessages(prev => [...prev, {from: 'qa', content: "No suitable audio recording format supported.", timestamp: Date.now()}]);
+        setMessages(prev => [...prev, {from: 'system', content: "No suitable audio recording format supported by your browser.", timestamp: Date.now()}]);
+        console.error("No supported mimeType for MediaRecorder");
+        stream.getTracks().forEach(track => track.stop()); // Clean up stream
+        audioStreamRef.current = null;
         return;
       }
       
@@ -72,19 +80,22 @@ export default function InstructionChat() {
 
       mediaRecorderRef.current.onstop = async () => {
         setRecording(false); // Set recording to false *before* async operations
-        stream.getTracks().forEach(track => track.stop()); // Stop media stream tracks
+        if (audioStreamRef.current) {
+            audioStreamRef.current.getTracks().forEach(track => track.stop());
+            audioStreamRef.current = null;
+        }
 
-        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
-        audioChunksRef.current = []; // Clear chunks
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
+        audioChunksRef.current = [];
 
         if (audioBlob.size === 0) {
             console.warn("Recorded audio blob is empty.");
-            setMessages(prev => [...prev, {from: 'qa', content: "Recording was empty.", timestamp: Date.now()}]);
+            setMessages(prev => [...prev, {from: 'system', content: "Recording was empty or too short.", timestamp: Date.now()}]);
+            setLoading(false); // End any potential loading state
             return;
         }
-        setLoading(true); // Indicate transcription is in progress
+        setLoading(true); 
 
-        // Convert Blob to base64
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
@@ -96,8 +107,8 @@ export default function InstructionChat() {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                    audioBase64: base64Audio,
-                    mimeType: mediaRecorderRef.current?.mimeType || 'audio/webm',
+                      audioBase64: base64Audio,
+                      mimeType: mimeTypeRef.current,
                     }),
                 });
                 const data = await resp.json();
@@ -105,40 +116,40 @@ export default function InstructionChat() {
                     setInput((prev) => (prev ? prev + " " : "") + data.transcript);
                 } else {
                     console.error("Whisper API error:", data.error || 'Unknown error');
-                    setMessages(prev => [...prev, {from: 'qa', content: `Transcription failed: ${data.error || 'Unknown error'}`, timestamp: Date.now()}]);
+                    setMessages(prev => [...prev, {from: 'system', content: `Transcription failed: ${data.error || 'Unknown error'}`, timestamp: Date.now()}]);
                 }
             } catch (error) {
                 console.error("Error calling Whisper API:", error);
-                setMessages(prev => [...prev, {from: 'qa', content: `Transcription request error: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now()}]);
+                setMessages(prev => [...prev, {from: 'system', content: `Transcription request error: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now()}]);
             } finally {
-                setLoading(false); // End transcription loading
+                setLoading(false); 
             }
         };
         reader.onerror = (error) => {
             console.error("FileReader error:", error);
-            setMessages(prev => [...prev, {from: 'qa', content: "Error processing recorded audio.", timestamp: Date.now()}]);
+            setMessages(prev => [...prev, {from: 'system', content: "Error processing recorded audio.", timestamp: Date.now()}]);
             setLoading(false);
         }
-
       };
       mediaRecorderRef.current.onerror = (event) => {
         console.error("MediaRecorder error:", event);
-        setMessages(prev => [...prev, {from: 'qa', content: "Error during recording.", timestamp: Date.now()}]);
+        setMessages(prev => [...prev, {from: 'system', content: "Error during recording.", timestamp: Date.now()}]);
         setRecording(false);
-        stream.getTracks().forEach(track => track.stop());
+        if (audioStreamRef.current) {
+            audioStreamRef.current.getTracks().forEach(track => track.stop());
+            audioStreamRef.current = null;
+        }
       }
 
       mediaRecorderRef.current.start();
       setRecording(true);
     } catch (err) {
       console.error("Error accessing microphone:", err);
-      alert("Could not access microphone. Please check permissions.");
-      setMessages(prev => [...prev, {from: 'qa', content: `Microphone access error: ${err instanceof Error ? err.message : String(err)}`, timestamp: Date.now()}]);
+      setMessages(prev => [...prev, {from: 'system', content: `Microphone access error: ${err instanceof Error ? err.message : String(err)}. Please check browser permissions.`, timestamp: Date.now()}]);
       setRecording(false);
     }
   }
 
-  // Send instruction to backend
   async function handleSend() {
     if (!input.trim()) return;
     setLoading(true);
@@ -146,7 +157,7 @@ export default function InstructionChat() {
     const userMessage: Message = { from: "user", content: input, timestamp: Date.now() };
     setMessages((prev) => [...prev, userMessage]);
     const currentInput = input;
-    setInput(""); // Clear input immediately
+    setInput(""); 
 
     try {
       const resp = await fetch("/api/dispatch-instruction", {
@@ -155,46 +166,21 @@ export default function InstructionChat() {
         body: JSON.stringify({
           agentType: agent,
           instruction: currentInput,
-          // files: {}, // Add file context if needed
-          // language: "typescript", // Add language if needed
-          // framework: "nextjs" // Add framework if needed
+          // files: {}, // Future: Add file context if needed by agents
+          // language: "typescript", // Future: Add if needed
+          // framework: "nextjs" // Future: Add if needed
         }),
       });
       
       const data = await resp.json();
 
       if (!resp.ok) {
-        throw new Error(data.error || `Agent call failed with status ${resp.status}`);
-      }
-      
-      // Assuming backend returns { result: { finalCodeSnippet: "...", explanation: "...", status: "...", message: "...", qaFeedbackOnFinalIteration: "..." } }
-      // Or for direct chat log: { result: { chatLog: [{from, content, timestamp}] } }
-      // For now, we'll simulate agent responses based on the structure implied by your example
-      // This part needs to be adapted based on the actual response from /api/dispatch-instruction
-
-      if (data.result && data.result.chatLog && Array.isArray(data.result.chatLog)) {
-         setMessages((prev) => [...prev, ...data.result.chatLog.map((log: any) => ({...log, timestamp: Date.now()}))]);
-      } else if (data.result) { // Adapt to current Genkit flow structure
-        let agentResponseContent = "";
-        if (data.result.finalCodeSnippet) {
-            agentResponseContent += `Code:\n\`\`\`\n${data.result.finalCodeSnippet}\n\`\`\`\n`;
-        }
-        if (data.result.explanation) {
-            agentResponseContent += `Explanation: ${data.result.explanation}\n`;
-        }
-        if (data.result.message) {
-            agentResponseContent += `Status: ${data.result.message}\n`;
-        }
-         if (data.result.qaFeedbackOnFinalIteration) {
-            agentResponseContent += `QA Feedback: ${data.result.qaFeedbackOnFinalIteration}\n`;
-        }
-
-        if (agentResponseContent) {
-             setMessages((prev) => [...prev, {from: agent, content: agentResponseContent, timestamp: Date.now()}]);
-        } else {
-             setMessages((prev) => [...prev, {from: agent, content: "Received a response, but no specific content to display.", timestamp: Date.now()}]);
-        }
-
+        // Use content from error response if available, otherwise generic message
+        const errorContent = data?.content || data?.error || `Agent call failed with status ${resp.status}`;
+        setMessages((prev) => [...prev, {from: agent, content: `Error: ${errorContent}`, timestamp: Date.now()}]);
+        // throw new Error(errorContent); // Or handle more gracefully
+      } else if (data.result && data.result.chatLog && Array.isArray(data.result.chatLog)) {
+         setMessages((prev) => [...prev, ...data.result.chatLog.map((log: any) => ({...log, timestamp: log.timestamp || Date.now()}))]);
       } else {
          setMessages((prev) => [...prev, {from: agent, content: "Received an empty or unexpected response from the agent.", timestamp: Date.now()}]);
       }
@@ -207,16 +193,14 @@ export default function InstructionChat() {
     }
   }
   
-  // Cleanup MediaRecorder and stream on unmount
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
         mediaRecorderRef.current.stop();
       }
-      // Ensure all tracks of the stream are stopped.
-      // This logic is partly in onstop, but good to have a fallback.
-      if (mediaRecorderRef.current?.stream) {
-         mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      if (audioStreamRef.current) {
+         audioStreamRef.current.getTracks().forEach(track => track.stop());
+         audioStreamRef.current = null;
       }
     };
   }, []);
@@ -224,8 +208,7 @@ export default function InstructionChat() {
 
   return (
     <div className="flex flex-col h-full bg-[#1B262C] text-white font-code rounded-lg shadow-xl">
-      {/* Agent Switcher and Header - Can be more stylized */}
-      <div className="p-3 border-b border-[#415A77] flex justify-center items-center space-x-2">
+      <div className="p-3 border-b border-[#2A3B47] flex justify-center items-center space-x-2">
         <span className="text-sm text-slate-400">Agent:</span>
         <button
           className={`px-3 py-1 text-sm rounded-md transition-colors ${agent === "developer" ? "bg-[#778DA9] text-white" : "bg-slate-700 hover:bg-slate-600"}`}
@@ -243,42 +226,44 @@ export default function InstructionChat() {
         </button>
       </div>
 
-      {/* Chat Log */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.from === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={idx} className={`flex flex-col ${msg.from === 'user' ? 'items-end' : 'items-start'}`}>
             <div 
-              className={`max-w-[75%] p-3 rounded-lg shadow ${
+              className={`max-w-[75%] p-3 shadow-md text-sm ${
                 msg.from === "user"
-                  ? "bg-[#415A77] text-white rounded-br-none"
+                  ? "bg-[#415A77] text-white rounded-xl rounded-br-none"
                   : msg.from === "developer"
-                  ? "bg-slate-700 text-slate-100 rounded-bl-none"
-                  : "bg-sky-700 text-sky-100 rounded-bl-none" 
+                  ? "bg-slate-700 text-slate-100 rounded-xl rounded-bl-none"
+                  : msg.from === "qa"
+                  ? "bg-sky-700 text-sky-100 rounded-xl rounded-bl-none"
+                  : "bg-gray-600 text-gray-100 rounded-xl rounded-bl-none" // System messages
               }`}
             >
-              <span className="block text-xs font-semibold mb-1 opacity-80">
-                {msg.from.toUpperCase()}
-                <span className="ml-2 text-xs font-normal opacity-70">
-                  {new Date(msg.timestamp).toLocaleTimeString()}
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold opacity-90">
+                  {msg.from.toUpperCase()}
                 </span>
-              </span>
-              <div className="whitespace-pre-wrap text-sm" dangerouslySetInnerHTML={{ __html: msg.content.replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-800 p-2 rounded-md my-1 overflow-x-auto"><code>$1</code></pre>') }}></div>
+                <span className="ml-3 text-xs font-normal opacity-70">
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: msg.content.replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-800 p-2 rounded-md my-1 text-xs overflow-x-auto"><code>$1</code></pre>') }}></div>
             </div>
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input + Controls */}
-      <div className="flex items-center border-t border-[#415A77] p-3 space-x-2 bg-slate-800">
+      <div className="flex items-center border-t border-[#2A3B47] p-3 space-x-2 bg-slate-800/50">
         <button
-          className={`p-2 rounded-full transition-colors ${recording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-[#415A77] hover:bg-[#55708d]"}`}
+          className={`p-2.5 rounded-full transition-colors ${recording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-[#415A77] hover:bg-[#55708d]"}`}
           onClick={handleMicClick}
           aria-label={recording ? "Stop Recording" : "Record Voice"}
-          disabled={loading}
+          disabled={loading && !recording} // Allow stopping recording even if another type of loading is true
         >
-          {/* Using a simple emoji, can be replaced with an SVG icon */}
-          {recording ? '⏹️' : '🎤'}
+          {/* Using simple emoji, can be replaced with an SVG icon from lucide-react */}
+          {recording ? '⏹️' : '🎤'} 
         </button>
         <textarea
           value={input}
@@ -289,20 +274,20 @@ export default function InstructionChat() {
               handleSend();
             }
           }}
-          className="flex-1 bg-[#232d36] text-white rounded-md p-2.5 resize-none border border-slate-600 focus:ring-2 focus:ring-[#778DA9] focus:border-transparent"
+          className="flex-1 bg-[#23313f] text-white rounded-lg p-2.5 resize-none border border-slate-600 focus:ring-2 focus:ring-[#778DA9] focus:border-transparent placeholder-slate-400 text-sm"
           rows={2}
           placeholder={loading ? "Agent is thinking..." : (recording ? "Recording..." : "Type your instruction or use the mic…")}
           disabled={loading || recording}
         />
         <button
           onClick={handleSend}
-          className="bg-[#415A77] hover:bg-[#55708d] text-white px-5 py-2.5 rounded-md transition-colors disabled:opacity-50"
+          className="bg-[#778DA9] hover:bg-[#647a96] text-white px-5 py-2.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           disabled={loading || recording || !input.trim()}
+          aria-label="Send instruction"
         >
-          {loading ? "Sending..." : "Send"}
+          {loading && !recording ? "..." : "Send"}
         </button>
       </div>
     </div>
   );
 }
-
