@@ -1,3 +1,4 @@
+
 // Implemented by Gemini.
 'use server';
 /**
@@ -40,14 +41,14 @@ const prompt = ai.definePrompt({
   Present the fixes as a patch that can be applied to the code.
 
   Code:
-  ```
+  \`\`\`
   {{{code}}}
-  ```
+  \`\`\`
 
   Test Results:
-  ```
+  \`\`\`
   {{{testResults}}}
-  ```
+  \`\`\`
 
   Suggest fixes in the following format:
   {
