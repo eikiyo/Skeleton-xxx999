@@ -15,13 +15,14 @@ import {
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare } from 'lucide-react';
+import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3 } from 'lucide-react'; // Added Edit3 for Canvas
 import { FileExplorer } from './file-explorer';
 import { GitControls } from './git-controls';
 import { CodeEditor } from './code-editor';
 import { ConsoleOutput } from './console-output';
 import { InstructionInput } from './instruction-input';
 import { AgentPanels } from './agent-panels';
+import { CanvasGitActions } from './canvas-git-actions'; // New component
 import type { FileSystem, LogEntry, AgentType } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,10 +70,10 @@ export function MainLayout(props: MainLayoutProps) {
   const isAgentsTabActive = activeSidebarTab === 'agents';
   const isChatTabActive = activeSidebarTab === 'chat';
   const isGitTabActive = activeSidebarTab === 'git';
-  const isFilesTabActive = activeSidebarTab === 'files';
+  const isCanvasTabActive = activeSidebarTab === 'canvas'; // Renamed from isFilesTabActive
 
-  const showConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive;
-  const showLeftColumnInstructionInput = false; // Never show instruction input in left column now
+  const showConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive;
+  const showLeftColumnInstructionInput = false; 
   const showLeftColumnContent = !isChatTabActive && !isAgentsTabActive;
 
 
@@ -81,7 +82,6 @@ export function MainLayout(props: MainLayoutProps) {
       <Sidebar variant="sidebar" collapsible="icon" className="border-r">
         <SidebarHeader className="p-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {/* Placeholder for Logo */}
             <LayoutGrid className="w-7 h-7 text-primary" />
             <span className="text-lg font-semibold font-headline text-primary group-data-[collapsible=icon]:hidden">CodePilot</span>
           </div>
@@ -118,11 +118,11 @@ export function MainLayout(props: MainLayoutProps) {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton 
-                tooltip="Files"
-                isActive={isFilesTabActive}
-                onClick={() => setActiveSidebarTab('files')}
+                tooltip="Canvas" // Renamed from "Files"
+                isActive={isCanvasTabActive} // Renamed from isFilesTabActive
+                onClick={() => setActiveSidebarTab('canvas')} // Renamed
               >
-                <Files /> <span>File Explorer</span>
+                <Edit3 /> <span>Canvas</span> 
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -146,20 +146,14 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          (isChatTabActive || isAgentsTabActive || isGitTabActive) && "pb-4" 
+          (isChatTabActive || isAgentsTabActive || isGitTabActive || isCanvasTabActive) && "pb-4" 
         )}>
           {/* Left Column (Sidebar Content) */}
           {showLeftColumnContent && (
-            <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
-              {/* {showLeftColumnInstructionInput && (
-                <InstructionInput
-                  instruction={props.instruction}
-                  setInstruction={props.setInstruction}
-                  onSubmit={props.submitInstruction}
-                  isSubmitting={props.isSubmittingInstruction}
-                  selectedAgent={props.selectedAgent}
-                />
-              )} */}
+            <div className={cn(
+              "md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto",
+              (isChatTabActive || isAgentsTabActive) && "md:hidden" // Hide left column for chat & agents
+            )}>
               {isGitTabActive && (
                 <GitControls
                   repoUrl={props.repoUrl}
@@ -170,8 +164,8 @@ export function MainLayout(props: MainLayoutProps) {
                   isCloned={props.isCloned}
                 />
               )}
-              {isFilesTabActive && (
-                <Card className="h-full shadow-sm">
+              {(isGitTabActive || isCanvasTabActive) && ( // Show FileExplorer for Git and Canvas
+                <Card className="h-full shadow-sm flex-grow">
                   <FileExplorer
                     files={props.files}
                     selectedFilePath={props.selectedFilePath}
@@ -182,10 +176,10 @@ export function MainLayout(props: MainLayoutProps) {
             </div>
           )}
 
-          {/* Center Column (Agent Panels / Code Editor / Chat Interface) */}
+          {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas) */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
-            (!showLeftColumnContent) ? "md:col-span-3" : "md:col-span-2"
+            (!showLeftColumnContent || isChatTabActive || isAgentsTabActive) ? "md:col-span-3" : "md:col-span-2"
           )}>
             {isAgentsTabActive ? (
                 <AgentPanels
@@ -195,7 +189,6 @@ export function MainLayout(props: MainLayoutProps) {
                 />
             ) : isChatTabActive ? (
                 <>
-                  {/* Chat Messages Area */}
                   <div className="flex-grow min-h-0">
                     <Card className="h-full flex flex-col items-center justify-center shadow-sm">
                         <CardHeader>
@@ -208,7 +201,6 @@ export function MainLayout(props: MainLayoutProps) {
                         </CardContent>
                     </Card>
                   </div>
-                  {/* Chat Input Area */}
                   <div className="shrink-0 basis-[20%] min-h-[144px] mt-4">
                     <InstructionInput
                       instruction={props.instruction}
@@ -219,7 +211,26 @@ export function MainLayout(props: MainLayoutProps) {
                     />
                   </div>
                 </>
-            ) : ( // This covers 'git' and 'files' tabs for the center panel
+            ) : isCanvasTabActive ? (
+                <div className="h-full flex flex-col">
+                    <div className="flex-grow min-h-0">
+                        <CodeEditor
+                            filePath={props.selectedFilePath}
+                            content={props.currentFileContent}
+                            setContent={props.setFileContent}
+                            title="Canvas"
+                        />
+                    </div>
+                    <div className="shrink-0 mt-4">
+                        <CanvasGitActions
+                            onStageAll={props.onStageAll}
+                            onCommit={props.onCommit}
+                            onPush={props.onPush}
+                            isCloned={props.isCloned}
+                        />
+                    </div>
+                </div>
+            ) : ( // This covers 'git' tab for the center panel (FileExplorer already in left)
                  <div className="h-full">
                     <CodeEditor
                       filePath={props.selectedFilePath}
