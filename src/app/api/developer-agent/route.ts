@@ -6,8 +6,8 @@ const OPENROUTER_MODEL = 'qwen/qwen3-235b-a22b:free'; // Using a suitable model
 
 export async function POST(req: NextRequest) {
   try {
-    const OPENROUTER_KEY = process.env.QWEN_OPENROUTER_KEY;
-    if (!OPENROUTER_KEY) {
+    const QWEN_OPENROUTER_KEY = process.env.QWEN_OPENROUTER_KEY;
+    if (!QWEN_OPENROUTER_KEY) {
       console.error(
         '[Developer-Agent] QWEN_OPENROUTER_KEY not set in environment.'
       );
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     const llmResponse = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${OPENROUTER_KEY}`,
+        Authorization: `Bearer ${QWEN_OPENROUTER_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://your-app-url.com', // Best practice: replace with your actual app URL
         'X-Title': 'CodePilot Developer Agent', // Best practice: identify your app
