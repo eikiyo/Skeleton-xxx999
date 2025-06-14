@@ -15,16 +15,17 @@ import {
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3, Layers, RefreshCw } from 'lucide-react'; // Added Layers, RefreshCw
+import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3, Layers } from 'lucide-react';
 import { FileExplorer } from './file-explorer';
 import { GitControls } from './git-controls';
 import { CodeEditor } from './code-editor';
-import { ConsoleOutput } from './console-output';
+import { ConsoleOutput } from './console-output'; // Still used for non-"Others" tabs
 import { AgentPanels } from './agent-panels';
 import { CanvasGitActions } from './canvas-git-actions';
+import ProjectConsole from './project-console'; // Import the new component
 import type { FileSystem, LogEntry, AgentType } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+// import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Card not directly used in "Others" now
 import { cn } from '@/lib/utils';
 import InstructionChat from './instruction-chat';
 
@@ -36,7 +37,7 @@ interface MainLayoutProps {
   setToken: (token: string) => void;
   isCloned: boolean;
   onClone: () => void;
-  onPull: () => void; // New prop for Pull
+  onPull: () => void;
   onStageAll: () => void;
   onCommit: (message: string) => void;
   onPush: () => void;
@@ -48,14 +49,14 @@ interface MainLayoutProps {
   onFileSelect: (path: string) => void;
   setFileContent: (path: string, content: string) => void;
   
-  instruction: string;
-  setInstruction: (instruction: string) => void;
+  instruction: string; // Retained for potential use if InstructionInput is re-added for agents
+  setInstruction: (instruction: string) => void; // Retained for potential use
   selectedAgent: AgentType | null;
   setSelectedAgent: (agent: AgentType | null) => void;
-  isSubmittingInstruction: boolean;
-  submitInstruction: () => void;
+  isSubmittingInstruction: boolean; // Retained for potential use
+  submitInstruction: () => void; // Retained for potential use
   
-  logs: LogEntry[];
+  logs: LogEntry[]; // Global logs, ProjectConsole will manage its own for "Others" tab
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
 
   applyPatch: (patch: string) => void;
@@ -63,7 +64,7 @@ interface MainLayoutProps {
 
 export function MainLayout(props: MainLayoutProps) {
   const isMobile = useIsMobile();
-  const [activeSidebarTab, setActiveSidebarTab] = React.useState('agents');
+  const [activeSidebarTab, setActiveSidebarTab] = React.useState('agents'); // Default to agents
 
   const isAgentsTabActive = activeSidebarTab === 'agents';
   const isChatTabActive = activeSidebarTab === 'chat';
@@ -71,11 +72,13 @@ export function MainLayout(props: MainLayoutProps) {
   const isCanvasTabActive = activeSidebarTab === 'canvas';
   const isOthersTabActive = activeSidebarTab === 'others';
   
+  // Show bottom console only if none of the full-pane tabs are active
   const showBottomConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive && !isOthersTabActive;
   
-  // Left column content is hidden for Chat, Agents, Others, and Canvas (Canvas manages its own FileExplorer implicitly)
+  // Left column content is hidden for Chat, Agents, and Others tabs.
   // For Git Tab, the left column IS shown (it holds GitControls)
-  const showLeftColumnContent = isGitTabActive;
+  // For Canvas Tab, left column is FileExplorer
+  const showLeftColumnContent = isGitTabActive || isCanvasTabActive;
 
 
   return (
@@ -156,14 +159,16 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          (isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive) && "pb-4",
-          isChatTabActive && "p-0 md:p-2" 
+          // Remove bottom padding if any of these tabs are active, as they might have their own full-height scroll.
+          (isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive || isChatTabActive) && "pb-4", 
+          isChatTabActive && "p-0 md:p-2", // Special padding for chat
+          isOthersTabActive && "p-0 md:p-2" // Special padding for others tab to allow full bleed
         )}>
           
           {/* Left Column (Sidebar Content / GitControls / FileExplorer for Canvas) */}
           <div className={cn(
               "md:col-span-1 flex-col gap-4 h-full overflow-y-auto",
-              showLeftColumnContent ? "flex" : "hidden md:flex", // Always flex for md if shown
+              showLeftColumnContent ? "flex" : "hidden md:flex",
               (isAgentsTabActive || isChatTabActive || isOthersTabActive) && "hidden", // Hide for these tabs
               isCanvasTabActive && "flex" // For Canvas, left column is FileExplorer
             )}>
@@ -178,7 +183,7 @@ export function MainLayout(props: MainLayoutProps) {
                   isCloned={props.isCloned}
                 />
               )}
-              {isCanvasTabActive && ( // FileExplorer for Canvas Tab
+              {isCanvasTabActive && (
                 <FileExplorer
                     files={props.files}
                     selectedFilePath={props.selectedFilePath}
@@ -188,17 +193,15 @@ export function MainLayout(props: MainLayoutProps) {
             </div>
 
 
-          {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas / Others) */}
+          {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas / ProjectConsole for Others) */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
             // If left column is hidden for these tabs, main content spans full width
             (isAgentsTabActive || isChatTabActive || isOthersTabActive) ? "md:col-span-3" : 
-            // If Canvas tab, it uses 2 cols because left col is FileExplorer
-            isCanvasTabActive ? "md:col-span-2" :
-            // For Git tab, it also uses 2 cols as left col has GitControls
-            isGitTabActive ? "md:col-span-2" : 
+            // If Canvas tab or Git tab, it uses 2 cols because left col has content
+            (isCanvasTabActive || isGitTabActive) ? "md:col-span-2" : 
             "md:col-span-2", // Default if none of the above
-             isChatTabActive ? "bg-[#1B262C] rounded-lg" : "" 
+             (isChatTabActive || isOthersTabActive) ? "bg-[#1B262C] rounded-lg" : "" 
           )}>
             {isAgentsTabActive ? (
                 <AgentPanels
@@ -210,26 +213,26 @@ export function MainLayout(props: MainLayoutProps) {
                 <div className="h-full w-full">
                   <InstructionChat />
                 </div>
-            ) : isGitTabActive ? ( // Git Controls Tab - Center Panel with FileExplorer and ReadOnly CodeEditor
+            ) : isGitTabActive ? (
                 <div className="h-full flex flex-col gap-4">
-                    <div className="flex-grow basis-1/2 min-h-0"> {/* File Explorer takes top half */}
+                    <div className="flex-grow basis-1/2 min-h-0">
                          <FileExplorer
                             files={props.files}
                             selectedFilePath={props.selectedFilePath}
                             onFileSelect={props.onFileSelect}
                           />
                     </div>
-                    <div className="flex-grow basis-1/2 min-h-0"> {/* Code Editor takes bottom half */}
+                    <div className="flex-grow basis-1/2 min-h-0">
                         <CodeEditor
                             filePath={props.selectedFilePath}
                             content={props.currentFileContent}
-                            setContent={props.setFileContent} // Still pass for consistency, but readOnly controls it
+                            setContent={props.setFileContent}
                             readOnly={true}
                             title={props.selectedFilePath ? `Preview: ${props.selectedFilePath}` : "Select a file to preview"}
                         />
                     </div>
                 </div>
-            ) : isCanvasTabActive ? ( // Canvas Tab - Center Panel (CodeEditor for editing, GitActions)
+            ) : isCanvasTabActive ? (
                 <div className="h-full flex flex-col gap-4">
                     <div className="flex-grow min-h-0">
                         <CodeEditor
@@ -249,24 +252,10 @@ export function MainLayout(props: MainLayoutProps) {
                     </div>
                 </div>
             ) : isOthersTabActive ? (
-                 <div className="h-full flex flex-col gap-4">
-                    <div className="flex-grow basis-2/3 min-h-0">
-                        <ConsoleOutput logs={props.logs} />
-                    </div>
-                    <div className="shrink-0 basis-1/3">
-                        <Card className="h-full shadow-sm">
-                            <CardHeader className="py-3 px-4 border-b">
-                                <CardTitle className="text-base font-medium font-headline">Shell Terminal</CardTitle>
-                            </CardHeader>
-                            <CardContent className="p-4 h-full flex items-center justify-center">
-                                <p className="text-muted-foreground text-center">
-                                    Shell terminal interface will be displayed here.
-                                </p>
-                            </CardContent>
-                        </Card>
-                    </div>
+                 <div className="h-full w-full"> {/* ProjectConsole takes full area */}
+                    <ProjectConsole />
                 </div>
-            ) : ( // Fallback for any unhandled tab, though all should be covered
+            ) : ( 
                  <div className="h-full flex items-center justify-center">
                     <p>Select a tab from the sidebar.</p>
                 </div>
@@ -274,8 +263,10 @@ export function MainLayout(props: MainLayoutProps) {
           </div>
         </div>
         
+        {/* Global Console - only shown if no specific tab is overriding the console display */}
         {showBottomConsole && (
           <div className="h-[200px] md:h-[250px] p-4 pt-0">
+            {/* This ConsoleOutput uses the global logs from CodePilotPage */}
             <ConsoleOutput logs={props.logs} />
           </div>
         )}
