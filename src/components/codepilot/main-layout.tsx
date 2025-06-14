@@ -16,18 +16,17 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3, Layers } from 'lucide-react';
-import { FileExplorer } from './file-explorer';
-import { GitControls } from './git-controls';
-import { CodeEditor } from './code-editor';
+import FileExplorer from './file-explorer'; // Updated import path
+import FileEditor from './file-editor'; // New FileEditor for Canvas
+import { CodeEditor } from './code-editor'; // Existing CodeEditor for preview/other uses
 import { ConsoleOutput } from './console-output'; 
 import { AgentPanels } from './agent-panels';
 import { CanvasGitActions } from './canvas-git-actions';
 import ProjectConsole from './project-console'; 
-import type { AgentType, FileNode as FileSystemRootType } from '@/types'; // LogEntry removed, FileSystem renamed to FileSystemRootType
+import type { AgentType, FileNode as FileSystemRootType, FileNode } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import InstructionChat from './instruction-chat';
-// LogEntry type is now implicitly handled by useLogs hook in consuming components
 
 interface MainLayoutProps {
   // Git State
@@ -39,17 +38,16 @@ interface MainLayoutProps {
   onClone: () => void;
   onPull: () => void;
   onStageAll: () => void;
-  onCommit: (message: string) => void;
+  onCommit: (message: string) => void; 
   onPush: () => void;
 
-  // File System State from Page (for selection, content display)
-  fileSystemRoot: FileSystemRootType; // Pass the root of the file system tree
-  selectedFilePath: string | null;
-  currentFileContent: string;
-  onFileSelect: (path: string) => void;
-  setFileContent: (path: string, content: string) => void; // To update content in context via Page
+  // File System State from Page
+  fileSystemRoot: FileSystemRootType; 
+  selectedFile: FileNode | null; // Changed from selectedFilePath and currentFileContent
+  onFileSelect: (file: FileNode) => void; // Changed to pass FileNode
+  onEditorChange: (content: string) => void; // For FileEditor in Canvas
   
-  // Instruction & Agent State (primarily for AgentPanels if not using InstructionChat's internal logic)
+  // Instruction & Agent State
   instruction: string; 
   setInstruction: (instruction: string) => void; 
   selectedAgent: AgentType | null;
@@ -57,11 +55,8 @@ interface MainLayoutProps {
   isSubmittingInstruction: boolean; 
   submitInstruction: () => void; 
   
-  // Logs and AddLog are now managed by LogContext, but addLog can be passed for convenience
-  // logs: LogEntry[]; // Removed
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent' | 'system' | 'git' | 'shell') => void;
-
-  applyPatch: (patch: string) => void;
+  applyPatch: (filePath: string, patchString: string) => void; // Assuming diff patch for now
 }
 
 export function MainLayout(props: MainLayoutProps) {
@@ -181,9 +176,8 @@ export function MainLayout(props: MainLayoutProps) {
               )}
               {isCanvasTabActive && (
                 <FileExplorer
-                    // files prop removed, FileExplorer uses context via props.fileSystemRoot
-                    selectedFilePath={props.selectedFilePath}
                     onFileSelect={props.onFileSelect}
+                    selectedFilePath={props.selectedFile?.path || null}
                 />
               )}
             </div>
@@ -200,38 +194,38 @@ export function MainLayout(props: MainLayoutProps) {
                 <AgentPanels
                   selectedAgent={props.selectedAgent}
                   setSelectedAgent={props.setSelectedAgent}
-                  addLog={props.addLog} // addLog from Page, now uses context via wrapper
+                  addLog={props.addLog}
                 />
             ) : isChatTabActive ? (
                 <div className="h-full w-full">
-                  <InstructionChat /> {/* InstructionChat now uses LogContext internally */}
+                  <InstructionChat />
                 </div>
             ) : isGitTabActive ? (
                 <div className="h-full flex flex-col gap-4">
                     <div className="flex-grow basis-1/2 min-h-0">
                          <FileExplorer
-                            // files prop removed
-                            selectedFilePath={props.selectedFilePath}
                             onFileSelect={props.onFileSelect}
+                            selectedFilePath={props.selectedFile?.path || null}
                           />
                     </div>
                     <div className="flex-grow basis-1/2 min-h-0">
+                        {/* Using existing CodeEditor for read-only preview */}
                         <CodeEditor
-                            filePath={props.selectedFilePath}
-                            content={props.currentFileContent}
-                            setContent={props.setFileContent}
+                            filePath={props.selectedFile?.path || null}
+                            content={props.selectedFile?.content || ''}
+                            setContent={() => {}} // No-op as it's read-only here
                             readOnly={true}
-                            title={props.selectedFilePath ? `Preview: ${props.selectedFilePath}` : "Select a file to preview"}
+                            title={props.selectedFile ? undefined : "Select a file to preview"} // Title managed by CodeEditor
                         />
                     </div>
                 </div>
             ) : isCanvasTabActive ? (
                 <div className="h-full flex flex-col gap-4">
                     <div className="flex-grow min-h-0">
-                        <CodeEditor
-                            filePath={props.selectedFilePath}
-                            content={props.currentFileContent}
-                            setContent={props.setFileContent}
+                        {/* Using new FileEditor for editing */}
+                        <FileEditor
+                            file={props.selectedFile}
+                            onChange={props.onEditorChange}
                         />
                     </div>
                     <div className="shrink-0 mt-auto">
@@ -245,7 +239,7 @@ export function MainLayout(props: MainLayoutProps) {
                 </div>
             ) : isOthersTabActive ? (
                  <div className="h-full w-full"> 
-                    <ProjectConsole /> {/* ProjectConsole now uses LogContext internally */}
+                    <ProjectConsole />
                 </div>
             ) : ( 
                  <div className="h-full flex items-center justify-center">
@@ -257,11 +251,10 @@ export function MainLayout(props: MainLayoutProps) {
         
         {showBottomConsole && (
           <div className="h-[200px] md:h-[250px] p-4 pt-0">
-            <ConsoleOutput /> {/* ConsoleOutput now uses LogContext internally */}
+            <ConsoleOutput />
           </div>
         )}
       </SidebarInset>
     </SidebarProvider>
   );
 }
-

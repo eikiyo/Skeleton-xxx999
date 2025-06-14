@@ -3,15 +3,13 @@
 
 import React from 'react';
 import { Textarea } from '@/components/ui/textarea';
-// Label removed as it's not used
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-// useFileSystem hook is not directly used here, setContent is passed as prop
 
 interface CodeEditorProps {
   filePath: string | null;
-  content: string; // Current content is passed directly
-  setContent: (path: string, newContent: string) => void; // Callback to update content in context
+  content: string; 
+  setContent: (path: string, newContent: string) => void; 
   readOnly?: boolean;
   title?: string; 
 }
@@ -24,22 +22,33 @@ export function CodeEditor({ filePath, content, setContent, readOnly = false, ti
     }
   };
 
-  const displayTitle = title ?? (filePath ? `Editing: ${filePath}` : 'Code Editor');
+  // Determine display title: use provided title, or construct from filePath, or default.
+  let displayTitle = title;
+  if (!displayTitle) {
+    if (filePath) {
+      const fileName = filePath.split('/').pop();
+      displayTitle = readOnly ? `Preview: ${fileName}` : `Editing: ${fileName}`;
+    } else {
+      displayTitle = 'Code Editor';
+    }
+  }
+
 
   return (
     <Card className="h-full flex flex-col shadow-sm">
       <CardHeader className="py-3 px-4 border-b">
-        <CardTitle className="text-base font-medium font-headline">
+        <CardTitle className="text-base font-medium font-headline truncate">
           {displayTitle}
+          {filePath && <span className="text-xs text-muted-foreground ml-2 font-normal truncate">({filePath})</span>}
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0 flex-grow">
         <ScrollArea className="h-full w-full">
-          {filePath || title === "Project Structure" || title === "Canvas" ? ( 
+          {filePath || title ? ( // Ensure editor shows if a title is explicitly passed (e.g. "Canvas")
             <Textarea
-              value={content} // Use the passed content prop
+              value={content}
               onChange={handleContentChange}
-              readOnly={readOnly || title === "Project Structure"} 
+              readOnly={readOnly} 
               placeholder={readOnly ? "No file selected or file is empty." : "Start coding..."}
               className="font-code h-full w-full resize-none border-0 rounded-none focus-visible:ring-0 p-4 text-sm bg-background text-foreground"
               aria-label={filePath ? `Code editor for ${filePath}` : 'Code editor'}
