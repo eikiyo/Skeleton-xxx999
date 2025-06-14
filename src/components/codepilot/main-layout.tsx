@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3, Layers } from 'lucide-react';
-import FileExplorer from './file-explorer'; // Updated import path
+import FileExplorer from './file-explorer';
 import FileEditor from './file-editor'; // New FileEditor for Canvas
 import { CodeEditor } from './code-editor'; // Existing CodeEditor for preview/other uses
 import { ConsoleOutput } from './console-output'; 
@@ -27,9 +27,9 @@ import type { AgentType, FileNode as FileSystemRootType, FileNode } from '@/type
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import InstructionChat from './instruction-chat';
+import { GitControls } from './git-controls'; // Ensure GitControls is imported
 
 interface MainLayoutProps {
-  // Git State
   repoUrl: string;
   setRepoUrl: (url: string) => void;
   token: string;
@@ -40,28 +40,23 @@ interface MainLayoutProps {
   onStageAll: () => void;
   onCommit: (message: string) => void; 
   onPush: () => void;
-
-  // File System State from Page
   fileSystemRoot: FileSystemRootType; 
-  selectedFile: FileNode | null; // Changed from selectedFilePath and currentFileContent
-  onFileSelect: (file: FileNode) => void; // Changed to pass FileNode
-  onEditorChange: (content: string) => void; // For FileEditor in Canvas
-  
-  // Instruction & Agent State
+  selectedFile: FileNode | null;
+  onFileSelect: (file: FileNode) => void;
+  // onEditorChange removed as FileEditor in Canvas manages its own state and save
   instruction: string; 
   setInstruction: (instruction: string) => void; 
   selectedAgent: AgentType | null;
   setSelectedAgent: (agent: AgentType | null) => void;
   isSubmittingInstruction: boolean; 
   submitInstruction: () => void; 
-  
-  addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent' | 'system' | 'git' | 'shell') => void;
-  applyPatch: (filePath: string, patchString: string) => void; // Assuming diff patch for now
+  addLog: (message: string, type?: LogEntry['source']) => void;
+  applyPatch: (filePath: string, patchString: string) => void;
 }
 
 export function MainLayout(props: MainLayoutProps) {
   const isMobile = useIsMobile();
-  const [activeSidebarTab, setActiveSidebarTab] = React.useState('agents'); 
+  const [activeSidebarTab, setActiveSidebarTab] = React.useState('chat'); // Default to chat
 
   const isAgentsTabActive = activeSidebarTab === 'agents';
   const isChatTabActive = activeSidebarTab === 'chat';
@@ -69,7 +64,9 @@ export function MainLayout(props: MainLayoutProps) {
   const isCanvasTabActive = activeSidebarTab === 'canvas';
   const isOthersTabActive = activeSidebarTab === 'others';
   
-  const showBottomConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive && !isOthersTabActive;
+  // Show bottom console only if no specific full-panel tab is active.
+  // Or, for specific tabs if desired. For now, let's hide it for chat & others.
+  const showBottomConsole = !isChatTabActive && !isOthersTabActive && !isAgentsTabActive;
   
   const showLeftColumnContent = isGitTabActive || isCanvasTabActive;
 
@@ -152,9 +149,10 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          (isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive || isChatTabActive) && "pb-4", 
+          // (isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive || isChatTabActive) && "pb-4", 
           isChatTabActive && "p-0 md:p-2", 
-          isOthersTabActive && "p-0 md:p-2" 
+          isOthersTabActive && "p-0 md:p-2",
+          isAgentsTabActive && "p-0 md:p-2"
         )}>
           
           <div className={cn(
@@ -188,7 +186,7 @@ export function MainLayout(props: MainLayoutProps) {
             (isAgentsTabActive || isChatTabActive || isOthersTabActive) ? "md:col-span-3" : 
             (isCanvasTabActive || isGitTabActive) ? "md:col-span-2" : 
             "md:col-span-2", 
-             (isChatTabActive || isOthersTabActive) ? "bg-[#1B262C] rounded-lg" : "" 
+             (isChatTabActive || isOthersTabActive || isAgentsTabActive) ? "bg-[#1B262C] rounded-lg" : "" 
           )}>
             {isAgentsTabActive ? (
                 <AgentPanels
@@ -209,23 +207,21 @@ export function MainLayout(props: MainLayoutProps) {
                           />
                     </div>
                     <div className="flex-grow basis-1/2 min-h-0">
-                        {/* Using existing CodeEditor for read-only preview */}
                         <CodeEditor
                             filePath={props.selectedFile?.path || null}
                             content={props.selectedFile?.content || ''}
-                            setContent={() => {}} // No-op as it's read-only here
+                            setContent={() => {}} 
                             readOnly={true}
-                            title={props.selectedFile ? undefined : "Select a file to preview"} // Title managed by CodeEditor
+                            title={props.selectedFile ? undefined : "Select a file to preview"}
                         />
                     </div>
                 </div>
             ) : isCanvasTabActive ? (
                 <div className="h-full flex flex-col gap-4">
                     <div className="flex-grow min-h-0">
-                        {/* Using new FileEditor for editing */}
                         <FileEditor
                             file={props.selectedFile}
-                            onChange={props.onEditorChange}
+                            // onChange prop removed as FileEditor handles its own content and save
                         />
                     </div>
                     <div className="shrink-0 mt-auto">
