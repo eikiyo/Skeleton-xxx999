@@ -2,17 +2,17 @@
 import { type NextRequest, NextResponse } from 'next/server';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL = 'mistralai/mistral-7b-instruct'; // Using a more suitable model for QA
+const OPENROUTER_MODEL = 'qwen/qwen3-235b-a22b:free'; // Using a suitable model
 
 export async function POST(req: NextRequest) {
   try {
-    const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+    const OPENROUTER_KEY = process.env.QWEN_OPENROUTER_KEY;
     if (!OPENROUTER_KEY) {
       console.error(
-        '[QA-Agent] OPENROUTER_KEY not set in environment.'
+        '[Developer-Agent] QWEN_OPENROUTER_KEY not set in environment.'
       );
       return NextResponse.json(
-        { error: 'Server configuration error: OPENROUTER_KEY not set.' },
+        { error: 'Server configuration error: QWEN_OPENROUTER_KEY not set.' },
         { status: 500 }
       );
     }
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json();
     } catch (error) {
-      console.error('[QA-Agent] Invalid JSON body:', error);
+      console.error('[Developer-Agent] Invalid JSON body:', error);
       return NextResponse.json({ error: 'Invalid JSON body received.' }, { status: 400 });
     }
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       {
         role: 'system',
         content:
-          'You are a helpful assistant for code-related questions. Provide concise and relevant answers based on the provided context, if any.',
+          'Always strictly follow the user’s instructions and coding standards. Provide concise and relevant answers based on the provided context, if any.',
       },
       {
         role: 'user',
@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
       headers: {
         Authorization: `Bearer ${OPENROUTER_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://your-app-url.com',
-        'X-Title': 'CodePilot QA Agent',
+        'HTTP-Referer': 'https://your-app-url.com', // Best practice: replace with your actual app URL
+        'X-Title': 'CodePilot Developer Agent', // Best practice: identify your app
       },
       body: JSON.stringify({
         model: OPENROUTER_MODEL,
@@ -62,29 +62,18 @@ export async function POST(req: NextRequest) {
 
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
-      console.error(`[DeveloperAgent-Qwen] LLM call failed with status ${llmResponse.status}:`, errorText);
+      console.error(`[Developer-Agent] LLM call failed with status ${llmResponse.status}:`, errorText);
       return NextResponse.json({ reply: `Developer Agent (Qwen) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}` }, { status: llmResponse.status });
     }
-    const errorText = await llmResponse.text();
-    console.error(
-      `[QA-Agent] LLM call failed with status ${llmResponse.status}:`,
-      errorText
-    );
-    return NextResponse.json(
-      {
-        error: `QA Agent API call failed. Status: ${
-          llmResponse.status
-        }. Details: ${errorText.slice(0, 500)}`,
-      },
-      { status: llmResponse.status }
-    );
-  }
 
+    // If llmResponse.ok is true, proceed to parse JSON
     const data = await llmResponse.json();
-    const answer = data?.choices?.[0]?.message?.content || 'No answer from LLM.';
-    return NextResponse.json({ answer });
-  } catch (error) {
-    console.error('[QA-Agent] Unexpected error:', error);
-    return NextResponse.json({ error: 'Internal server error.' }, { status: 500 });
+    const reply = data?.choices?.[0]?.message?.content || 'No reply from LLM.';
+    console.log("[Developer-Agent]", { promptLength: prompt.length, contextLength: context?.length || 0, replyLength: reply.length });
+    return NextResponse.json({ reply });
+
+  } catch (error: any) {
+    console.error('[Developer-Agent] Unexpected error:', error);
+    return NextResponse.json({ error: `Internal server error in Developer Agent. ${error.message || ''}`.trim() }, { status: 500 });
   }
 }
