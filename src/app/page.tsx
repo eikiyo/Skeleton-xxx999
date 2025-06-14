@@ -11,18 +11,18 @@ import { usePatchApply } from '@/hooks/use-patch-apply';
 
 export default function CodePilotPage() {
   const { toast } = useToast();
-  const { root: fileSystemRoot, getFile, updateFile: updateFileInContext, initializeFileSystem } = useFileSystem();
+  const { root: fileSystemRoot, getFile, updateFileDetails, initializeFileSystem } = useFileSystem();
   const { addLog: addLogEntry } = useLogs(); 
   const { applyDirectPatch, applyDiffPatch } = usePatchApply();
 
   const [repoUrl, setRepoUrl] = useState<string>('');
   const [currentGitBranch, setCurrentGitBranch] = useState<string>('main');
-  const [token, setToken] = useState<string>('');
+  const [token, setToken] = useState<string>(''); // User-provided PAT for initial clone if needed
   const [isCloned, setIsCloned] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const [instruction, setInstruction] = useState<string>(''); 
-  const [selectedAgent, setSelectedAgent] = useState<AgentType | null>('developer'); 
-  const [isSubmittingInstruction, setIsSubmittingInstruction] = useState<boolean>(false);
+  const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null); // No longer used for chat, but kept for AgentPanels if needed
+  const [isSubmittingInstruction, setIsSubmittingInstruction] = useState<boolean>(false); // For AgentPanels, if used
 
   const addLog = useCallback((logEntry: Omit<LogEntry, 'id' | 'timestamp'>) => {
     addLogEntry(logEntry);
@@ -42,24 +42,24 @@ export default function CodePilotPage() {
     }
     addLog({ message: `Cloning repository: ${repoUrl}...`, source: 'git' });
     try {
-      const response = await fetch('/api/git', { // This still uses /api/git for clone
+      const response = await fetch('/api/git', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'clone', repoUrl, token, branch: currentGitBranch }),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || `Clone failed with status ${response.status}`);
+        throw new Error(data.error || data.details || `Clone failed with status ${response.status}`);
       }
       
       if (data.files && typeof data.files === 'object') {
-        initializeFileSystem(data.files);
+        initializeFileSystem(data.files); // data.files should be Record<string, { content: string, sha?: string }>
         addLog({ message: data.message || `Repository cloned. ${Object.keys(data.files).length} files listed.`, source: 'success'});
         setIsCloned(true);
         setSelectedFile(null); 
       } else {
          initializeFileSystem({}); 
-         addLog({ message: data.message || 'Clone successful but no files listed.', source: 'success'});
+         addLog({ message: data.message || 'Clone successful but no files listed from initial clone operation.', source: 'success'});
          setIsCloned(true);
          setSelectedFile(null);
       }
@@ -75,35 +75,15 @@ export default function CodePilotPage() {
       addLog({ message: "No repository cloned to pull from.", source: 'error' });
       return;
     }
-    addLog({ message: 'Pulling latest changes from remote... (Attempting real pull)', source: 'git' });
-    try {
-       const response = await fetch('/api/git', { // This could use /api/git for pull if implemented there
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pull', repoUrl, token, branch: currentGitBranch }), 
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `Pull failed with status ${response.status}`);
-      }
-      if (data.files && typeof data.files === 'object') {
-        initializeFileSystem(data.files); // Re-initialize FS with pulled files
-        addLog({ message: `Pull successful. ${Object.keys(data.files).length} files updated.`, source: 'success'});
-      } else {
-        addLog({ message: data.message || 'Pull successful, no file data to update workspace.', source: 'success'});
-      }
-       setSelectedFile(null);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      addLog({ message: `Error pulling repository: ${errorMsg}`, source: 'error'});
-    }
+    addLog({ message: 'Pulling latest changes (simulated, re-cloning)...', source: 'git' });
+    // For MVP, pull can re-trigger clone logic or fetch all files again.
+    // A true pull would involve more complex git operations.
+    // For now, let's just re-initialize by calling clone's logic.
+    await handleClone(); 
   };
-
+  
   const handleStageAll = () => {
-    // Staging is now implicit if using /api/git/save-file for each modified file
-    // Or if /api/git commit_and_push is used, it stages everything.
-    // For now, this can be a no-op or log an informational message.
-    addLog({ message: 'Staging all changes (conceptually, all modified files will be part of the next "Commit & Push" if saved individually).', source: 'info'});
+    addLog({ message: 'Staging all changes (conceptually handled by "Save to GitHub" for individual files).', source: 'info'});
   }
   
   const handleCommitAndPush = async (commitMessage: string) => {
@@ -120,7 +100,7 @@ export default function CodePilotPage() {
       return;
     }
 
-    addLog({ message: `Preparing to save files to GitHub with base message: "${commitMessage}"...`, source: 'git' });
+    addLog({ message: `Saving all modified files to GitHub with base message: "${commitMessage}"...`, source: 'git' });
 
     let owner, repoName;
     try {
@@ -148,12 +128,13 @@ export default function CodePilotPage() {
       return;
     }
 
-    const filesToSave: { path: string, content: string }[] = [];
+    const filesToSave: { path: string, content: string, sha?: string }[] = [];
     function collectFiles(node: FileNode) {
-      if (node.type === 'file' && node.content !== undefined) { // Only include files with content
+      if (node.type === 'file') { // Check if content exists or if it's a newly created file
         const relativePath = node.path.startsWith('/') ? node.path.substring(1) : node.path;
-        if (relativePath && !relativePath.startsWith('/')) { // Ensure it's a relative path within the repo
-           filesToSave.push({ path: relativePath, content: node.content });
+        // Only save files that are not just empty placeholders from a shallow clone
+        if (relativePath && node.content !== undefined) { 
+           filesToSave.push({ path: relativePath, content: node.content, sha: node.sha });
         }
       } else if (node.type === 'folder' && node.children) {
         node.children.forEach(collectFiles);
@@ -175,8 +156,6 @@ export default function CodePilotPage() {
     for (const file of filesToSave) {
       addLog({ message: `Saving ${file.path} to GitHub...`, source: 'git' });
       try {
-        // SHA is not sent; this creates/updates the file. GitHub API handles this.
-        // Each save will be its own commit.
         const response = await fetch('/api/git/save-file', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -185,18 +164,25 @@ export default function CodePilotPage() {
             repo: repoName,
             path: file.path,
             content: file.content,
-            message: `${commitMessage} (file: ${file.path})`, // Individual commit message
+            message: `${commitMessage} (file: ${file.path})`,
             branch: currentGitBranch,
-            // token is handled by the backend API route via GITHUB_TOKEN env var
+            ...(file.sha ? { sha: file.sha } : {}),
           }),
         });
 
         const data = await response.json();
         if (!response.ok) {
           allSuccessful = false;
-          addLog({ message: `Failed to save ${file.path}: ${data.error || `Status ${response.status}`}`, source: 'error' });
+          addLog({ message: `Failed to save ${file.path}: ${data.error || data.details || `Status ${response.status}`}`, source: 'error' });
         } else {
           addLog({ message: `Successfully saved ${file.path} to GitHub. Commit: ${data.commit?.sha?.substring(0,7) || 'N/A'}`, source: 'success' });
+          // Update SHA in FileSystemContext after successful save
+          if (data.content?.sha) {
+            updateFileDetails(file.path, { sha: data.content.sha });
+            if (selectedFile && selectedFile.path === file.path) {
+              setSelectedFile(prev => prev ? ({...prev, sha: data.content.sha }) : null);
+            }
+          }
         }
       } catch (error) {
         allSuccessful = false;
@@ -212,18 +198,85 @@ export default function CodePilotPage() {
     }
   };
 
+  const handleFileSelect = useCallback(async (fileNode: FileNode) => {
+    addLog({ message: `Selected ${fileNode.type}: ${fileNode.path}`, source: 'info' });
 
-  const handleFileSelect = useCallback((file: FileNode) => {
-    setSelectedFile(file);
-    if (file.type === 'file') {
-        addLog({ message: `Selected file: ${file.path}`, source: 'info' });
-    } else {
-        addLog({ message: `Selected folder: ${file.path}`, source: 'info' });
+    if (fileNode.type === 'file') {
+      if (!repoUrl) {
+        addLog({ source: 'error', message: 'Repository URL not set. Cannot fetch file content from GitHub.' });
+        setSelectedFile(fileNode); // Select the file from context, even if we can't fetch
+        return;
+      }
+
+      let owner, repoName;
+      try {
+        const url = new URL(repoUrl.replace(/\.git$/, ''));
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        if (pathParts.length >= 2) {
+          owner = pathParts[pathParts.length - 2];
+          repoName = pathParts[pathParts.length - 1];
+        } else {
+          const sshMatch = repoUrl.match(/[:/]([\w-]+)\/([\w-]+)(\.git)?$/);
+          if (sshMatch && sshMatch.length >= 3) {
+            owner = sshMatch[1];
+            repoName = sshMatch[2];
+          } else {
+            throw new Error("Could not parse owner/repo from URL.");
+          }
+        }
+      } catch (e) {
+        addLog({ source: 'error', message: `Invalid Repository URL: ${e instanceof Error ? e.message : String(e)}` });
+        setSelectedFile(fileNode);
+        return;
+      }
+
+      if (!owner || !repoName) {
+        addLog({ source: 'error', message: 'Could not parse owner and repository name from URL.' });
+        setSelectedFile(fileNode);
+        return;
+      }
+      
+      const filePathInRepo = fileNode.path.startsWith('/') ? fileNode.path.substring(1) : fileNode.path;
+      addLog({ source: 'git', message: `Fetching content for ${filePathInRepo} from branch ${currentGitBranch}...` });
+
+      try {
+        const queryParams = new URLSearchParams({
+          owner,
+          repo: repoName,
+          path: filePathInRepo,
+          branch: currentGitBranch,
+        }).toString();
+
+        const response = await fetch(`/api/git/get-file?${queryParams}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || data.details || `Failed to fetch file from GitHub (${response.status})`);
+        }
+
+        updateFileDetails(fileNode.path, { content: data.content, sha: data.sha });
+        setSelectedFile({ ...fileNode, content: data.content, sha: data.sha });
+        toast({ title: "File Loaded", description: `${fileNode.name} loaded from GitHub.` });
+        addLog({ source: 'success', message: `Content for ${fileNode.name} fetched successfully from GitHub.` });
+
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        addLog({ source: 'error', message: `Error fetching file ${fileNode.name} from GitHub: ${errorMsg}` });
+        setSelectedFile(fileNode); // Still select the file, but with potentially stale/no content from context
+        toast({
+          title: "Error Loading File",
+          description: `Could not load ${fileNode.name} from GitHub. Displaying local version. ${errorMsg}`,
+          variant: "destructive",
+        });
+      }
+    } else { // It's a folder
+      setSelectedFile(fileNode);
     }
-  }, [addLog]);
+  }, [addLog, repoUrl, currentGitBranch, updateFileDetails, toast]);
   
   const handleSubmitInstructionToAgentPanel = () => {
-    if (!selectedAgent) {
+    // This function is for the AgentPanels (developer/qa config), not the main chat.
+    if (!selectedAgent) { // selectedAgent is still used by AgentPanels
       addLog({ message: "Please select an agent first (from Agent Panels).", source: "error"});
       return;
     }
@@ -231,8 +284,6 @@ export default function CodePilotPage() {
       addLog({ message: "Instruction for Agent Panel cannot be empty.", source: "error"});
       return;
     }
-    // This function's purpose seems to be for a different instruction input mechanism
-    // than the main chat. For now, it's a mock for the AgentPanels.
     addLog({ message: `Instruction submitted to ${selectedAgent} agent (from Agent Panel): "${instruction}"`, source: 'agent'});
     setIsSubmittingInstruction(true);
     setTimeout(() => {
@@ -247,7 +298,7 @@ export default function CodePilotPage() {
       repoUrl={repoUrl}
       setRepoUrl={setRepoUrl}
       currentGitBranch={currentGitBranch} 
-      token={token} // Token is used by /api/git for clone, not directly by save-file frontend
+      token={token} 
       setToken={setToken}
       isCloned={isCloned}
       onClone={handleClone}
@@ -257,14 +308,13 @@ export default function CodePilotPage() {
       fileSystemRoot={fileSystemRoot}
       selectedFile={selectedFile}
       onFileSelect={handleFileSelect}
-      instruction={instruction} 
-      setInstruction={setInstruction} 
-      selectedAgent={selectedAgent} 
-      setSelectedAgent={setSelectedAgent} 
-      isSubmittingInstruction={isSubmittingInstruction} 
-      submitInstruction={handleSubmitInstructionToAgentPanel} 
+      instruction={instruction} // For AgentPanels
+      setInstruction={setInstruction}  // For AgentPanels
+      selectedAgent={selectedAgent} // For AgentPanels
+      setSelectedAgent={setSelectedAgent} // For AgentPanels
+      isSubmittingInstruction={isSubmittingInstruction}  // For AgentPanels
+      submitInstruction={handleSubmitInstructionToAgentPanel}  // For AgentPanels
       applyPatch={applyDiffPatch} 
     />
   );
 }
-
