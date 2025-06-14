@@ -27,9 +27,9 @@ export async function POST(req: NextRequest) {
 
     const { prompt, context } = body;
 
-    if (!prompt) {
+    if (typeof prompt !== 'string' || !prompt.trim()) {
       return NextResponse.json(
-        { error: "'prompt' (question) is required." },
+        { error: "'prompt' (question) is required and must be a non-empty string." },
         { status: 400 }
       );
     }
@@ -63,17 +63,23 @@ export async function POST(req: NextRequest) {
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
       console.error(`[Developer-Agent] LLM call failed with status ${llmResponse.status}:`, errorText);
-      return NextResponse.json({ reply: `Developer Agent (Qwen) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}` }, { status: llmResponse.status });
+      return NextResponse.json({ error: `Developer Agent (Qwen) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}` }, { status: llmResponse.status });
     }
 
     // If llmResponse.ok is true, proceed to parse JSON
     const data = await llmResponse.json();
     const reply = data?.choices?.[0]?.message?.content || 'No reply from LLM.';
-    console.log("[Developer-Agent]", { promptLength: prompt.length, contextLength: context?.length || 0, replyLength: reply.length });
+    
+    console.log("[Developer-Agent] Interaction Summary:", { 
+        promptLength: prompt.length, 
+        contextLength: context?.length || 0, 
+        replyLength: reply.length 
+    });
+
     return NextResponse.json({ reply });
 
-  } catch (error: any) {
-    console.error('[Developer-Agent] Unexpected error:', error);
+  } catch (error: any) { // This catch is for unexpected errors not caught by specific checks
+    console.error('[Developer-Agent] Unexpected error in POST handler:', error);
     return NextResponse.json({ error: `Internal server error in Developer Agent. ${error.message || ''}`.trim() }, { status: 500 });
   }
 }
