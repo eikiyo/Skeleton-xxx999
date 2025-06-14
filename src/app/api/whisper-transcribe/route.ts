@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 });
   }
 
-  const OPENAI_API_KEY = process.env.OPEN_AI_KEY;
+  const OPENAI_API_KEY = process.env.OPEN_AI_KEY; // Removed hardcoded key
   if (!OPENAI_API_KEY) {
     console.error('[WhisperTranscribe] OPEN_AI_KEY not set in environment.');
     return NextResponse.json({ error: "Server configuration error: OPEN_AI_KEY not set." }, { status: 500 });

@@ -1,11 +1,16 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 
-const OPENROUTER_API_KEY = "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";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_MODEL = "deepseek/deepseek-chat"; // Using the general model as v3 not found in docs for free tier
+const OPENROUTER_MODEL = "deepseek/deepseek-chat"; // Using the general model as v3 not found in docs for free tier. "deepseek/deepseek-chat-v3-0324:free" was specified.
 
 export async function POST(req: NextRequest) {
+  const DEEPSEEK_OPENROUTER_KEY = process.env.DEEPSEEK_OPENROUTER_KEY;
+  if (!DEEPSEEK_OPENROUTER_KEY) {
+    console.error('[QAAgent-DeepSeek] DEEPSEEK_OPENROUTER_KEY not set in environment.');
+    return NextResponse.json({ reply: 'Server configuration error: DEEPSEEK_OPENROUTER_KEY not set.' }, { status: 500 });
+  }
+  
   let body;
   try {
     body = await req.json();
@@ -29,7 +34,7 @@ export async function POST(req: NextRequest) {
     const llmResponse = await fetch(OPENROUTER_API_URL, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${DEEPSEEK_OPENROUTER_KEY}`,
         "Content-Type": "application/json",
         "HTTP-Referer": "https://your-app-url.com", 
         "X-Title": "CodePilot QA Agent" 
@@ -51,8 +56,8 @@ export async function POST(req: NextRequest) {
 
     console.log("[QAAgent-DeepSeek] Interaction Log:", {
       requestBody: { promptLength: prompt.length, contextLength: context?.length || 0 },
-      llmRawResponseForAudit: data, 
-      extractedReply: reply
+      // llmRawResponseForAudit: data, // Consider if logging full response is needed
+      extractedReplyLength: reply.length
     });
     
     return NextResponse.json({ reply });
