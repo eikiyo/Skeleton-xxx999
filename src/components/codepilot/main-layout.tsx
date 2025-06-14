@@ -67,6 +67,13 @@ export function MainLayout(props: MainLayoutProps) {
   const [activeSidebarTab, setActiveSidebarTab] = React.useState('agents');
 
   const isAgentsTabActive = activeSidebarTab === 'agents';
+  const isChatTabActive = activeSidebarTab === 'chat';
+  const isGitTabActive = activeSidebarTab === 'git';
+  const isFilesTabActive = activeSidebarTab === 'files';
+
+  const showConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive;
+  const showLeftColumnInstructionInput = false; // Never show instruction input in left column now
+  const showLeftColumnContent = !isChatTabActive && !isAgentsTabActive;
 
 
   return (
@@ -94,7 +101,7 @@ export function MainLayout(props: MainLayoutProps) {
              <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Chat"
-                isActive={activeSidebarTab === 'chat'}
+                isActive={isChatTabActive}
                 onClick={() => setActiveSidebarTab('chat')}
               >
                 <MessageSquare /> <span>Chat</span>
@@ -103,7 +110,7 @@ export function MainLayout(props: MainLayoutProps) {
             <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Git Controls"
-                isActive={activeSidebarTab === 'git'}
+                isActive={isGitTabActive}
                 onClick={() => setActiveSidebarTab('git')}
               >
                 <GitBranch /> <span>Git Controls</span>
@@ -112,7 +119,7 @@ export function MainLayout(props: MainLayoutProps) {
             <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Files"
-                isActive={activeSidebarTab === 'files'}
+                isActive={isFilesTabActive}
                 onClick={() => setActiveSidebarTab('files')}
               >
                 <Files /> <span>File Explorer</span>
@@ -139,12 +146,12 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          activeSidebarTab === 'agents' && "pb-0" 
+          (isChatTabActive || isAgentsTabActive || isGitTabActive) && "pb-4" 
         )}>
-          {/* Left Column (Sidebar Content) - Hidden in Chat mode & Agents mode (as instruction input is removed) */}
-          {activeSidebarTab !== 'chat' && activeSidebarTab !== 'agents' && (
+          {/* Left Column (Sidebar Content) */}
+          {showLeftColumnContent && (
             <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
-              {/* {activeSidebarTab === 'agents' && (
+              {/* {showLeftColumnInstructionInput && (
                 <InstructionInput
                   instruction={props.instruction}
                   setInstruction={props.setInstruction}
@@ -153,20 +160,17 @@ export function MainLayout(props: MainLayoutProps) {
                   selectedAgent={props.selectedAgent}
                 />
               )} */}
-              {activeSidebarTab === 'git' && (
+              {isGitTabActive && (
                 <GitControls
                   repoUrl={props.repoUrl}
                   setRepoUrl={props.setRepoUrl}
                   token={props.token}
                   setToken={props.setToken}
                   onClone={props.onClone}
-                  onStageAll={props.onStageAll}
-                  onCommit={props.onCommit}
-                  onPush={props.onPush}
                   isCloned={props.isCloned}
                 />
               )}
-              {activeSidebarTab === 'files' && (
+              {isFilesTabActive && (
                 <Card className="h-full shadow-sm">
                   <FileExplorer
                     files={props.files}
@@ -179,24 +183,17 @@ export function MainLayout(props: MainLayoutProps) {
           )}
 
           {/* Center Column (Agent Panels / Code Editor / Chat Interface) */}
-          {/* Takes full width in chat mode, and for agents mode if left column is hidden */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
-            (activeSidebarTab === 'chat' || activeSidebarTab === 'agents') ? "md:col-span-3" : "md:col-span-2"
+            (!showLeftColumnContent) ? "md:col-span-3" : "md:col-span-2"
           )}>
-            {activeSidebarTab === 'agents' ? (
+            {isAgentsTabActive ? (
                 <AgentPanels
                   selectedAgent={props.selectedAgent}
                   setSelectedAgent={props.setSelectedAgent}
-                  // instruction={props.instruction} // No longer needed here
-                  // currentCode={props.currentFileContent} // No longer needed here
-                  // currentFileContentForDeveloperAgent={props.currentFileContent} // No longer needed here
-                  // selectedFilePath={props.selectedFilePath} // No longer needed here
-                  // setFileContent={props.setFileContent} // No longer needed here
                   addLog={props.addLog}
-                  // applyPatch={props.applyPatch} // No longer needed here
                 />
-            ) : activeSidebarTab === 'chat' ? (
+            ) : isChatTabActive ? (
                 <>
                   {/* Chat Messages Area */}
                   <div className="flex-grow min-h-0">
@@ -225,17 +222,17 @@ export function MainLayout(props: MainLayoutProps) {
             ) : ( // This covers 'git' and 'files' tabs for the center panel
                  <div className="h-full">
                     <CodeEditor
-                    filePath={props.selectedFilePath}
-                    content={props.currentFileContent}
-                    setContent={props.setFileContent}
+                      filePath={props.selectedFilePath}
+                      content={props.currentFileContent}
+                      setContent={props.setFileContent}
+                      title={isGitTabActive ? "Project Structure" : undefined}
                     />
                 </div>
             )}
           </div>
         </div>
         
-        {/* Bottom section for Console - conditionally rendered (hidden for chat and agents tab) */}
-        {activeSidebarTab !== 'chat' && activeSidebarTab !== 'agents' && (
+        {showConsole && (
           <div className="h-[200px] md:h-[250px] p-4 pt-0">
             <ConsoleOutput logs={props.logs} />
           </div>
