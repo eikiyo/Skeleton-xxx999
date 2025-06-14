@@ -7,42 +7,37 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-// import { collaborativeGenerateCode, CollaborativeCodeGenerationOutput }  from '@/ai/flows/collaborative-code-generation'; // No longer used with simplified UI
-// import { Loader2, Copy, CheckSquare, AlertCircle, Info } from 'lucide-react'; // No longer used with simplified UI
+import { Loader2 } from 'lucide-react';
 
 interface DeveloperAgentPanelProps {
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
-  // instruction: string; // Removed
-  // selectedFilePath: string | null; // Removed
-  // setFileContent: (path: string, content: string) => void; // Removed
-  // currentFileContentForContext: string | null; // Removed
 }
 
 export function DeveloperAgentPanel({ addLog }: DeveloperAgentPanelProps) {
   const [api, setApi] = useState('');
   const [role, setRole] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // Kept for potential future use
-
-  // useEffect for existingCode is removed as the field is gone.
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async () => {
-    // Current simplified UI does not trigger this.
-    // This would need to be re-implemented if a submit button is added for these new fields.
-    addLog(`Developer Agent: Submit clicked with API: ${api}, Role: ${role}, Instructions: ${instructions}`, "agent");
-    // Example of how it might be used in the future:
-    // setIsLoading(true);
+    addLog(`Developer Agent: Submit clicked. API: "${api}", Role: "${role}", Instructions: "${instructions}"`, "agent");
+    setIsLoading(true);
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1000)); 
     // try {
-    //   const result = await someNewAgentFlow({ api, role, instructions });
-    //   addLog("Developer Agent: Processed.", "success");
+    //   // Placeholder for actual API call using api, role, instructions
+    //   // const result = await someDeveloperAgentApiCall({ api, role, instructions });
+    //   // addLog("Developer Agent: Processed successfully.", "success");
+    //   addLog("Developer Agent: Submitted (mocked).", "success");
     // } catch (error) {
-    //   addLog("Developer Agent: Error.", "error");
+    //   const errorMessage = error instanceof Error ? error.message : String(error);
+    //   addLog(`Developer Agent: Error - ${errorMessage}`, "error");
     // } finally {
     //   setIsLoading(false);
     // }
+    setIsLoading(false); // Remove this line if actual API call logic is added above
   };
   
-  // handleCopyToClipboard and handleApplyToEditor are removed as output display is gone.
 
   return (
     <Card className="w-full h-full flex flex-col shadow-lg">
@@ -85,13 +80,11 @@ export function DeveloperAgentPanel({ addLog }: DeveloperAgentPanelProps) {
           />
         </div>
         
-        {/* Submit button removed for now, can be re-added if functionality for these fields is defined */}
-        {/* <Button onClick={handleSubmit} disabled={isLoading} className="w-full">
+        <Button onClick={handleSubmit} disabled={isLoading} className="w-full mt-auto">
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Submit to Developer Agent
-        </Button> */}
+        </Button>
 
-        {/* Output display section is removed */}
       </CardContent>
     </Card>
   );

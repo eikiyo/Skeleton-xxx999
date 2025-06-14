@@ -2,45 +2,41 @@
 "use client";
 
 import React, { useState } from 'react';
-// import { Button } from '@/components/ui/button'; // Button might be needed if a submit is added
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-// import { ScrollArea } from '@/components/ui/scroll-area'; // No longer needed for current display
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-// import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // No longer needed
-// import { suggestCodeFixes, SuggestCodeFixesOutput } from '@/ai/flows/suggest-code-fixes'; // No longer used
-// import { Loader2, Copy, CheckCircle, XCircle } from 'lucide-react'; // No longer used
-// import type { CodeSuggestion } from '@/types'; // No longer used
+import { Loader2 } from 'lucide-react';
 
 interface QAAgentPanelProps {
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
-  // currentCode: string; // Removed
-  // applyPatch: (patch: string) => void; // Removed
 }
 
 export function QAAgentPanel({ addLog }: QAAgentPanelProps) {
   const [api, setApi] = useState('');
   const [role, setRole] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // Kept for potential future use
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async () => {
-    // Current simplified UI does not trigger this.
-    addLog(`QA Agent: Submit clicked with API: ${api}, Role: ${role}, Instructions: ${instructions}`, "agent");
-    // Example of how it might be used in the future:
-    // setIsLoading(true);
+    addLog(`QA Agent: Submit clicked. API: "${api}", Role: "${role}", Instructions: "${instructions}"`, "agent");
+    setIsLoading(true);
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1000));
     // try {
-    //   const result = await someNewQAAgentFlow({ api, role, instructions });
-    //   addLog("QA Agent: Processed.", "success");
+    //   // Placeholder for actual API call using api, role, instructions
+    //   // const result = await someQAAgentApiCall({ api, role, instructions });
+    //   // addLog("QA Agent: Processed successfully.", "success");
+    //   addLog("QA Agent: Submitted (mocked).", "success");
     // } catch (error) {
-    //   addLog("QA Agent: Error.", "error");
+    //   const errorMessage = error instanceof Error ? error.message : String(error);
+    //   addLog(`QA Agent: Error - ${errorMessage}`, "error");
     // } finally {
     //   setIsLoading(false);
     // }
+    setIsLoading(false); // Remove this line if actual API call logic is added above
   };
-
-  // handleApplyPatch and handleCopyToClipboard are removed.
 
   return (
     <Card className="w-full h-full flex flex-col shadow-lg">
@@ -83,13 +79,11 @@ export function QAAgentPanel({ addLog }: QAAgentPanelProps) {
           />
         </div>
 
-        {/* Submit button removed for now */}
-        {/* <Button onClick={handleSubmit} disabled={isLoading} className="w-full">
+        <Button onClick={handleSubmit} disabled={isLoading} className="w-full mt-auto">
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Submit to QA Agent
-        </Button> */}
+        </Button>
 
-        {/* Output display section is removed */}
       </CardContent>
     </Card>
   );
