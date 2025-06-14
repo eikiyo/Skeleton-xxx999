@@ -3,20 +3,23 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/codepilot/main-layout';
-import type { FileSystem, LogEntry, AgentType } from '@/types';
+import type { AgentType, FileNode } from '@/types'; // FileSystem removed, FileNode used
 import { useToast } from "@/hooks/use-toast";
 import DiffMatchPatch from 'diff-match-patch';
+import { useFileSystem } from '@/context/FileSystemContext';
+import { useLogs } from '@/context/LogContext';
 
 export default function CodePilotPage() {
   const { toast } = useToast();
+  const { root: fileSystemRoot, getFile, updateFile, initializeFileSystem } = useFileSystem();
+  const { logs, addLog: addLogEntry } = useLogs();
 
   // Git State
   const [repoUrl, setRepoUrl] = useState<string>('');
   const [token, setToken] = useState<string>('');
   const [isCloned, setIsCloned] = useState<boolean>(false);
 
-  // File System State
-  const [files, setFiles] = useState<FileSystem>({});
+  // File System State (now primarily managed by context, local state for selection)
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [currentFileContent, setCurrentFileContent] = useState<string>('');
 
@@ -24,12 +27,10 @@ export default function CodePilotPage() {
   const [instruction, setInstruction] = useState<string>('');
   const [selectedAgent, setSelectedAgent] = useState<AgentType | null>('developer');
   const [isSubmittingInstruction, setIsSubmittingInstruction] = useState<boolean>(false);
-
-  // Console State
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-
-  const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
-    setLogs(prevLogs => [...prevLogs, { id: String(Date.now()) + Math.random(), timestamp: new Date(), message, type }]);
+  
+  // Wrapper for addLog to match previous signature if needed, or can directly use addLogEntry
+  const addLog = useCallback((message: string, type: 'info' | 'error' | 'success' | 'agent' | 'system' | 'git' | 'shell' = 'info') => {
+    addLogEntry({ message, source: type });
     if (type === 'error') {
       toast({
         title: "Error",
@@ -37,9 +38,9 @@ export default function CodePilotPage() {
         variant: "destructive",
       });
     }
-  }, [toast]);
+  }, [addLogEntry, toast]);
 
-  // --- Git Operation Handlers (Mocks) ---
+
   const handleClone = () => {
     if (!repoUrl) {
       addLog("Repository URL cannot be empty.", 'error');
@@ -47,15 +48,15 @@ export default function CodePilotPage() {
     }
     addLog(`Cloning repository: ${repoUrl}... (Mocked)`, 'info');
     setTimeout(() => {
-      const mockFiles: FileSystem = {
+      const mockFiles: Record<string, string> = {
         'README.md': '# My Awesome Project\nThis is a sample README file.',
         'src/index.ts': "console.log('Hello, CodePilot!');",
         'src/app/page.tsx': "// Sample page.tsx content\nexport default function Page() { return <h1>Welcome</h1>; }",
         'package.json': '{ "name": "my-project", "version": "1.0.0" }'
       };
-      setFiles(mockFiles);
+      initializeFileSystem(mockFiles); // Initialize context's file system
       setIsCloned(true);
-      setSelectedFilePath(null); // Reset selected file on new clone
+      setSelectedFilePath(null); 
       setCurrentFileContent('');
       addLog('Repository cloned successfully. (Mocked)', 'success');
     }, 1000);
@@ -67,41 +68,53 @@ export default function CodePilotPage() {
       return;
     }
     addLog('Pulling latest changes from remote... (Mocked)', 'info');
-    // Simulate pulling changes - potentially update files
     setTimeout(() => {
-      // Example: Update README.md
-      // const updatedFiles = { ...files, 'README.md': files['README.md'] + '\n\nUpdated content from pull.' };
-      // setFiles(updatedFiles);
-      // if (selectedFilePath === 'README.md') {
-      //   setCurrentFileContent(updatedFiles['README.md']);
-      // }
       addLog('Repository pulled successfully. (Mocked)', 'success');
     }, 1000);
   };
 
   const handleStageAll = () => addLog('Staging all changes... (Mocked)', 'info');
-  const handleCommit = (message: string) => addLog(`Committing with message: "${message}"... (Mocked)`, 'info');
-  const handlePush = () => addLog('Pushing changes... (Mocked)', 'info');
-
-
-  // --- File System Handlers ---
-  const handleFileSelect = (path: string) => {
-    setSelectedFilePath(path);
-    setCurrentFileContent(files[path] || '');
-    addLog(`Selected file: ${path}`, 'info');
+  const handleCommit = (message: string) => {
+    addLog(`Committing with message: "${message}"... (Mocked)`, 'git');
+    // Potentially trigger a push or indicate that push is needed
+    addLog('Changes committed. Ready to push. (Mocked)', 'success');
+  };
+  const handlePush = () => {
+    addLog('Pushing changes... (Mocked)', 'git');
+     setTimeout(() => {
+        addLog('Changes pushed successfully. (Mocked)', 'success');
+    }, 1000);
   };
 
-  // Renamed from setFileContent to avoid conflict with props in MainLayout if directly used.
-  // This function is what CodeEditor calls via its setContent prop.
-  const updateFileContentInState = (path: string, newContent: string) => {
-    setFiles(prevFiles => ({ ...prevFiles, [path]: newContent }));
+
+  const handleFileSelect = useCallback((path: string) => {
+    setSelectedFilePath(path);
+    const fileNode = getFile(path);
+    if (fileNode && fileNode.type === 'file') {
+      setCurrentFileContent(fileNode.content || '');
+    } else {
+      setCurrentFileContent(''); // Clear content if folder or not found
+    }
+    addLog(`Selected file: ${path}`, 'info');
+  }, [getFile, addLog]);
+
+  const updateSelectedFileContent = useCallback((newContent: string) => {
+    if (selectedFilePath) {
+      updateFile(selectedFilePath, newContent);
+      setCurrentFileContent(newContent); // Keep local state in sync for editor
+    }
+  }, [selectedFilePath, updateFile]);
+  
+  // This function signature matches what CodeEditor expects.
+  // It updates context and local state.
+  const handleSetFileContentForEditor = useCallback((path: string, newContent: string) => {
+    updateFile(path, newContent);
     if (path === selectedFilePath) {
       setCurrentFileContent(newContent);
     }
-  };
+  }, [updateFile, selectedFilePath]);
 
 
-  // --- Instruction Submission ---
   const handleSubmitInstruction = () => {
     if (!selectedAgent) {
       addLog("Please select an agent first.", "error");
@@ -113,10 +126,11 @@ export default function CodePilotPage() {
     }
     addLog(`Instruction submitted to ${selectedAgent} agent: "${instruction}"`, 'agent');
     setIsSubmittingInstruction(true);
+    // Actual dispatch logic will happen in InstructionChat or AgentPanels
+    // For now, simulate completion for any external submission button
     setTimeout(() => setIsSubmittingInstruction(false), 500); 
   };
 
-  // --- Patch Application ---
   const applyPatch = useCallback((patchString: string) => {
     if (!selectedFilePath) {
       addLog("No file selected to apply patch.", "error");
@@ -127,7 +141,7 @@ export default function CodePilotPage() {
     const [newText, results] = dmp.patch_apply(patches, currentFileContent);
 
     if (results.every(result => result === true)) {
-      updateFileContentInState(selectedFilePath, newText as string); 
+      updateSelectedFileContent(newText as string); 
       addLog(`Patch applied successfully to ${selectedFilePath}.`, "success");
     } else {
       addLog(`Failed to apply patch to ${selectedFilePath}. Some hunks may have failed.`, "error");
@@ -135,14 +149,24 @@ export default function CodePilotPage() {
         if (!result) addLog(`Patch hunk ${i+1} failed.`, "error");
       });
     }
-  }, [selectedFilePath, currentFileContent, addLog, updateFileContentInState]);
+  }, [selectedFilePath, currentFileContent, addLog, updateSelectedFileContent]);
 
-
+  // Effect to update currentFileContent if the selected file's content changes in context
   useEffect(() => {
-    if (selectedFilePath && files[selectedFilePath] !== currentFileContent) {
-      setCurrentFileContent(files[selectedFilePath]);
+    if (selectedFilePath) {
+      const fileNode = getFile(selectedFilePath);
+      if (fileNode && fileNode.type === 'file') {
+        if (fileNode.content !== currentFileContent) {
+          setCurrentFileContent(fileNode.content || '');
+        }
+      } else if (currentFileContent !== '') {
+         // If selected path is no longer a file or doesn't exist, clear content
+         setCurrentFileContent('');
+      }
+    } else if (currentFileContent !== '') {
+        setCurrentFileContent(''); // No file selected, clear content
     }
-  }, [files, selectedFilePath, currentFileContent]);
+  }, [fileSystemRoot, selectedFilePath, getFile, currentFileContent]);
 
 
   return (
@@ -153,23 +177,24 @@ export default function CodePilotPage() {
       setToken={setToken}
       isCloned={isCloned}
       onClone={handleClone}
-      onPull={handlePull} // Pass new handler
+      onPull={handlePull} 
       onStageAll={handleStageAll}
       onCommit={handleCommit}
       onPush={handlePush}
-      files={files}
+      // files prop removed, FileExplorer will use context
+      fileSystemRoot={fileSystemRoot} // Pass root for FileExplorer
       selectedFilePath={selectedFilePath}
       currentFileContent={currentFileContent}
       onFileSelect={handleFileSelect}
-      setFileContent={updateFileContentInState} // Pass the state updater function
+      setFileContent={handleSetFileContentForEditor} 
       instruction={instruction}
       setInstruction={setInstruction}
       selectedAgent={selectedAgent}
       setSelectedAgent={setSelectedAgent}
       isSubmittingInstruction={isSubmittingInstruction}
       submitInstruction={handleSubmitInstruction}
-      logs={logs}
-      addLog={addLog}
+      // logs prop removed, ConsoleOutput/ProjectConsole will use context
+      addLog={addLog} // addLog can still be passed if some components don't use context directly
       applyPatch={applyPatch}
     />
   );

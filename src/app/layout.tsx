@@ -1,6 +1,8 @@
 import type {Metadata} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
+import { FileSystemProvider } from '@/context/FileSystemContext';
+import { LogProvider } from '@/context/LogContext';
 
 export const metadata: Metadata = {
   title: 'CodePilot App',
@@ -21,8 +23,12 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500&display=swap" rel="stylesheet" />
       </head>
       <body className="font-body antialiased">
-        {children}
-        <Toaster />
+        <FileSystemProvider>
+          <LogProvider>
+            {children}
+            <Toaster />
+          </LogProvider>
+        </FileSystemProvider>
       </body>
     </html>
   );

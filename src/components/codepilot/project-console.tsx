@@ -1,34 +1,13 @@
 
 import React, { useRef, useState, useEffect } from "react";
-
-// Message structure for logs and console
-type LogEntry = {
-  timestamp: number;
-  source: "system" | "developer" | "qa" | "user" | "git" | "shell";
-  message: string;
-};
-
-// Dummy hook: Replace with actual log provider/backend subscription
-// For now, let's add a way to add logs for demonstration if needed, though it's self-contained.
-function useProjectLogs(): [LogEntry[], (entry: LogEntry) => void, () => void] {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  
-  const addLog = React.useCallback((entry: LogEntry) => {
-    setLogs((prev) => [...prev, entry]);
-  }, []);
-
-  // Example: Add logs by calling this
-  // Replace/add with WebSocket or backend subscription
-  return [logs, addLog, () => {}]; // Returning addLog for potential external use if ever needed
-}
+import { useLogs, type LogEntry } from "@/context/LogContext"; // Import useLogs and LogEntry
 
 export default function ProjectConsole() {
-  const [logs, addLogToInternalState] = useProjectLogs(); // Using internal addLog for now
+  const { logs, addLog: addLogEntry } = useLogs(); // Use logs from context
   const [consoleOutput, setConsoleOutput] = useState<string>("No logs yet. Start an action to see output here.");
   const [terminalOutput, setTerminalOutput] = useState<string>("Shell terminal interface will be displayed here.");
   const logsRef = useRef<HTMLDivElement>(null);
 
-  // Export logs as .txt
   function handleExportLogs() {
     if (logs.length === 0) {
         alert("No logs to export.");
@@ -45,14 +24,13 @@ export default function ProjectConsole() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = "codepilot-project-log.txt";
-    document.body.appendChild(a); // Required for Firefox
+    a.download = `codepilot_project_log_${new Date().toISOString().replace(/:/g, '-')}.txt`;
+    document.body.appendChild(a); 
     a.click();
-    document.body.removeChild(a); // Clean up
+    document.body.removeChild(a); 
     URL.revokeObjectURL(url);
   }
 
-  // Scroll to bottom on new log & update console output
   useEffect(() => {
     if (logsRef.current) {
       logsRef.current.scrollTop = logsRef.current.scrollHeight;
@@ -65,16 +43,17 @@ export default function ProjectConsole() {
     }
   }, [logs]);
 
-  // DEMO: Add a welcome log on mount
   useEffect(() => {
-    addLogToInternalState({timestamp: Date.now(), source: 'system', message: 'Project console initialized.'});
+    // Check if an initial log already exists to prevent duplication on HMR
+    if (!logs.find(log => log.message === 'Project console initialized.' && log.source === 'system')) {
+      addLogEntry({source: 'system', message: 'Project console initialized.'});
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // Run once on mount
 
 
   return (
     <div className="flex flex-col h-full bg-[#1B262C] text-white font-code">
-      {/* Project Log Section */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-slate-700">
         <div className="font-semibold text-lg text-slate-200">Project Activity Log</div>
         <button
@@ -88,13 +67,13 @@ export default function ProjectConsole() {
       <div
         className="flex-grow overflow-y-auto px-4 py-3 text-xs bg-[#232d36] rounded-b-lg"
         ref={logsRef}
-        style={{ minHeight: "200px" }} // Ensure it has some min height
+        style={{ minHeight: "200px" }} 
       >
         {logs.length === 0 ? (
           <div className="text-slate-400">No activity recorded yet.</div>
         ) : (
-          logs.map((log, idx) => (
-            <div key={idx} className="mb-1">
+          logs.map((log) => ( // Use log.id for key
+            <div key={log.id} className="mb-1">
               <span className="text-slate-500">
                 [{new Date(log.timestamp).toLocaleTimeString()}]
               </span>{" "}
@@ -112,6 +91,10 @@ export default function ProjectConsole() {
                     ? "text-red-400 font-medium"
                     : log.source === "user"
                     ? "text-slate-300 font-medium"
+                    : log.source === "error"
+                    ? "text-red-400 font-medium"
+                    : log.source === "success"
+                    ? "text-green-400 font-medium"
                     : "text-slate-100 font-medium"
                 }
               >
@@ -123,13 +106,11 @@ export default function ProjectConsole() {
         )}
       </div>
 
-      {/* Console Output Preview */}
       <div className="px-4 py-3 mt-4 border-t border-slate-700 bg-[#1B262C]">
         <div className="font-semibold mb-1 text-slate-200">Latest Console Output</div>
-        <div className="text-sm text-slate-300 p-2 bg-slate-800 rounded min-h-[40px]">{consoleOutput}</div>
+        <div className="text-sm text-slate-300 p-2 bg-slate-800 rounded min-h-[40px] whitespace-pre-wrap">{consoleOutput}</div>
       </div>
 
-      {/* Shell Terminal Placeholder */}
       <div className="px-4 py-3 mt-4 border-t border-slate-700 bg-[#1B262C]">
         <div className="font-semibold mb-1 text-slate-200">Shell Terminal</div>
         <div className="text-xs text-slate-400 p-2 bg-slate-800 rounded min-h-[60px]">

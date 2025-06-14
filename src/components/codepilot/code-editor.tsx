@@ -3,19 +3,21 @@
 
 import React from 'react';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+// Label removed as it's not used
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+// useFileSystem hook is not directly used here, setContent is passed as prop
 
 interface CodeEditorProps {
   filePath: string | null;
-  content: string;
-  setContent: (path: string, newContent: string) => void;
+  content: string; // Current content is passed directly
+  setContent: (path: string, newContent: string) => void; // Callback to update content in context
   readOnly?: boolean;
-  title?: string; // New optional title prop
+  title?: string; 
 }
 
 export function CodeEditor({ filePath, content, setContent, readOnly = false, title }: CodeEditorProps) {
+  
   const handleContentChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (filePath && !readOnly) {
       setContent(filePath, event.target.value);
@@ -35,7 +37,7 @@ export function CodeEditor({ filePath, content, setContent, readOnly = false, ti
         <ScrollArea className="h-full w-full">
           {filePath || title === "Project Structure" || title === "Canvas" ? ( 
             <Textarea
-              value={content}
+              value={content} // Use the passed content prop
               onChange={handleContentChange}
               readOnly={readOnly || title === "Project Structure"} 
               placeholder={readOnly ? "No file selected or file is empty." : "Start coding..."}
@@ -43,7 +45,7 @@ export function CodeEditor({ filePath, content, setContent, readOnly = false, ti
               aria-label={filePath ? `Code editor for ${filePath}` : 'Code editor'}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
+            <div className="flex items-center justify-center h-full text-muted-foreground p-4 text-center">
               Select a file to view or edit its content.
             </div>
           )}

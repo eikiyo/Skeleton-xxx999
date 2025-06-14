@@ -19,15 +19,15 @@ import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3, Laye
 import { FileExplorer } from './file-explorer';
 import { GitControls } from './git-controls';
 import { CodeEditor } from './code-editor';
-import { ConsoleOutput } from './console-output'; // Still used for non-"Others" tabs
+import { ConsoleOutput } from './console-output'; 
 import { AgentPanels } from './agent-panels';
 import { CanvasGitActions } from './canvas-git-actions';
-import ProjectConsole from './project-console'; // Import the new component
-import type { FileSystem, LogEntry, AgentType } from '@/types';
+import ProjectConsole from './project-console'; 
+import type { AgentType, FileNode as FileSystemRootType } from '@/types'; // LogEntry removed, FileSystem renamed to FileSystemRootType
 import { useIsMobile } from '@/hooks/use-mobile';
-// import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Card not directly used in "Others" now
 import { cn } from '@/lib/utils';
 import InstructionChat from './instruction-chat';
+// LogEntry type is now implicitly handled by useLogs hook in consuming components
 
 interface MainLayoutProps {
   // Git State
@@ -42,29 +42,31 @@ interface MainLayoutProps {
   onCommit: (message: string) => void;
   onPush: () => void;
 
-  // File System State
-  files: FileSystem;
+  // File System State from Page (for selection, content display)
+  fileSystemRoot: FileSystemRootType; // Pass the root of the file system tree
   selectedFilePath: string | null;
   currentFileContent: string;
   onFileSelect: (path: string) => void;
-  setFileContent: (path: string, content: string) => void;
+  setFileContent: (path: string, content: string) => void; // To update content in context via Page
   
-  instruction: string; // Retained for potential use if InstructionInput is re-added for agents
-  setInstruction: (instruction: string) => void; // Retained for potential use
+  // Instruction & Agent State (primarily for AgentPanels if not using InstructionChat's internal logic)
+  instruction: string; 
+  setInstruction: (instruction: string) => void; 
   selectedAgent: AgentType | null;
   setSelectedAgent: (agent: AgentType | null) => void;
-  isSubmittingInstruction: boolean; // Retained for potential use
-  submitInstruction: () => void; // Retained for potential use
+  isSubmittingInstruction: boolean; 
+  submitInstruction: () => void; 
   
-  logs: LogEntry[]; // Global logs, ProjectConsole will manage its own for "Others" tab
-  addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
+  // Logs and AddLog are now managed by LogContext, but addLog can be passed for convenience
+  // logs: LogEntry[]; // Removed
+  addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent' | 'system' | 'git' | 'shell') => void;
 
   applyPatch: (patch: string) => void;
 }
 
 export function MainLayout(props: MainLayoutProps) {
   const isMobile = useIsMobile();
-  const [activeSidebarTab, setActiveSidebarTab] = React.useState('agents'); // Default to agents
+  const [activeSidebarTab, setActiveSidebarTab] = React.useState('agents'); 
 
   const isAgentsTabActive = activeSidebarTab === 'agents';
   const isChatTabActive = activeSidebarTab === 'chat';
@@ -72,12 +74,8 @@ export function MainLayout(props: MainLayoutProps) {
   const isCanvasTabActive = activeSidebarTab === 'canvas';
   const isOthersTabActive = activeSidebarTab === 'others';
   
-  // Show bottom console only if none of the full-pane tabs are active
   const showBottomConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive && !isOthersTabActive;
   
-  // Left column content is hidden for Chat, Agents, and Others tabs.
-  // For Git Tab, the left column IS shown (it holds GitControls)
-  // For Canvas Tab, left column is FileExplorer
   const showLeftColumnContent = isGitTabActive || isCanvasTabActive;
 
 
@@ -159,18 +157,16 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          // Remove bottom padding if any of these tabs are active, as they might have their own full-height scroll.
           (isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive || isChatTabActive) && "pb-4", 
-          isChatTabActive && "p-0 md:p-2", // Special padding for chat
-          isOthersTabActive && "p-0 md:p-2" // Special padding for others tab to allow full bleed
+          isChatTabActive && "p-0 md:p-2", 
+          isOthersTabActive && "p-0 md:p-2" 
         )}>
           
-          {/* Left Column (Sidebar Content / GitControls / FileExplorer for Canvas) */}
           <div className={cn(
               "md:col-span-1 flex-col gap-4 h-full overflow-y-auto",
               showLeftColumnContent ? "flex" : "hidden md:flex",
-              (isAgentsTabActive || isChatTabActive || isOthersTabActive) && "hidden", // Hide for these tabs
-              isCanvasTabActive && "flex" // For Canvas, left column is FileExplorer
+              (isAgentsTabActive || isChatTabActive || isOthersTabActive) && "hidden", 
+              isCanvasTabActive && "flex" 
             )}>
               {isGitTabActive && (
                 <GitControls
@@ -185,7 +181,7 @@ export function MainLayout(props: MainLayoutProps) {
               )}
               {isCanvasTabActive && (
                 <FileExplorer
-                    files={props.files}
+                    // files prop removed, FileExplorer uses context via props.fileSystemRoot
                     selectedFilePath={props.selectedFilePath}
                     onFileSelect={props.onFileSelect}
                 />
@@ -193,31 +189,28 @@ export function MainLayout(props: MainLayoutProps) {
             </div>
 
 
-          {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas / ProjectConsole for Others) */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
-            // If left column is hidden for these tabs, main content spans full width
             (isAgentsTabActive || isChatTabActive || isOthersTabActive) ? "md:col-span-3" : 
-            // If Canvas tab or Git tab, it uses 2 cols because left col has content
             (isCanvasTabActive || isGitTabActive) ? "md:col-span-2" : 
-            "md:col-span-2", // Default if none of the above
+            "md:col-span-2", 
              (isChatTabActive || isOthersTabActive) ? "bg-[#1B262C] rounded-lg" : "" 
           )}>
             {isAgentsTabActive ? (
                 <AgentPanels
                   selectedAgent={props.selectedAgent}
                   setSelectedAgent={props.setSelectedAgent}
-                  addLog={props.addLog}
+                  addLog={props.addLog} // addLog from Page, now uses context via wrapper
                 />
             ) : isChatTabActive ? (
                 <div className="h-full w-full">
-                  <InstructionChat />
+                  <InstructionChat /> {/* InstructionChat now uses LogContext internally */}
                 </div>
             ) : isGitTabActive ? (
                 <div className="h-full flex flex-col gap-4">
                     <div className="flex-grow basis-1/2 min-h-0">
                          <FileExplorer
-                            files={props.files}
+                            // files prop removed
                             selectedFilePath={props.selectedFilePath}
                             onFileSelect={props.onFileSelect}
                           />
@@ -239,7 +232,6 @@ export function MainLayout(props: MainLayoutProps) {
                             filePath={props.selectedFilePath}
                             content={props.currentFileContent}
                             setContent={props.setFileContent}
-                            // title prop removed to default to "Editing: {filePath}"
                         />
                     </div>
                     <div className="shrink-0 mt-auto">
@@ -252,8 +244,8 @@ export function MainLayout(props: MainLayoutProps) {
                     </div>
                 </div>
             ) : isOthersTabActive ? (
-                 <div className="h-full w-full"> {/* ProjectConsole takes full area */}
-                    <ProjectConsole />
+                 <div className="h-full w-full"> 
+                    <ProjectConsole /> {/* ProjectConsole now uses LogContext internally */}
                 </div>
             ) : ( 
                  <div className="h-full flex items-center justify-center">
@@ -263,14 +255,13 @@ export function MainLayout(props: MainLayoutProps) {
           </div>
         </div>
         
-        {/* Global Console - only shown if no specific tab is overriding the console display */}
         {showBottomConsole && (
           <div className="h-[200px] md:h-[250px] p-4 pt-0">
-            {/* This ConsoleOutput uses the global logs from CodePilotPage */}
-            <ConsoleOutput logs={props.logs} />
+            <ConsoleOutput /> {/* ConsoleOutput now uses LogContext internally */}
           </div>
         )}
       </SidebarInset>
     </SidebarProvider>
   );
 }
+
