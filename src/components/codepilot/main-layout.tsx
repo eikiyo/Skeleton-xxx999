@@ -65,6 +65,9 @@ export function MainLayout(props: MainLayoutProps) {
   const isMobile = useIsMobile();
   const [activeSidebarTab, setActiveSidebarTab] = React.useState('agents');
 
+  const isAgentsTabActive = activeSidebarTab === 'agents';
+
+
   return (
     <SidebarProvider defaultOpen={!isMobile}>
       <Sidebar variant="sidebar" collapsible="icon" className="border-r">
@@ -81,7 +84,7 @@ export function MainLayout(props: MainLayoutProps) {
             <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Agents" 
-                isActive={activeSidebarTab === 'agents'}
+                isActive={isAgentsTabActive}
                 onClick={() => setActiveSidebarTab('agents')}
               >
                 <Bot /> <span>Agents</span>
@@ -189,12 +192,15 @@ export function MainLayout(props: MainLayoutProps) {
                     </CardHeader>
                     <CardContent>
                         <p className="text-muted-foreground text-center">
-                            Use the instruction input to interact.
+                            Use the instruction input to interact with the selected agent.
+                        </p>
+                         <p className="text-sm text-muted-foreground text-center mt-2">
+                            Select an agent (Developer or QA) using the tabs above the instruction input.
                         </p>
                     </CardContent>
                 </Card>
-            ) : (
-                <div className="h-[calc(100%-180px)] min-h-[300px]"> {/* Adjust height as needed */}
+            ) : ( // This covers 'git' and 'files' tabs for the center panel
+                 <div className="h-[calc(100%-0px)] md:h-full"> {/* Adjust height - was calc(100%-180px), now aims for full height when not agents/chat */}
                     <CodeEditor
                     filePath={props.selectedFilePath}
                     content={props.currentFileContent}
@@ -213,4 +219,3 @@ export function MainLayout(props: MainLayoutProps) {
     </SidebarProvider>
   );
 }
-

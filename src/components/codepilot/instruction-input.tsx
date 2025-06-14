@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -46,9 +47,9 @@ export function InstructionInput({ instruction, setInstruction, onSubmit, isSubm
         };
         
         recognitionRef.current.onend = () => {
-          if (isRecording) { // If it ended unexpectedly while still supposed to be recording
+          if (isRecording) { 
              // console.log("Speech recognition ended, restarting if still isRecording");
-             // recognitionRef.current?.start(); // Keep it off to avoid loops if permissions are weird
+             // recognitionRef.current?.start(); 
           }
         };
       }
@@ -70,7 +71,7 @@ export function InstructionInput({ instruction, setInstruction, onSubmit, isSubm
       recognitionRef.current.stop();
       setIsRecording(false);
     } else {
-      setInstruction(''); // Clear previous instruction
+      setInstruction(''); 
       recognitionRef.current.start();
       setIsRecording(true);
     }
@@ -94,7 +95,7 @@ export function InstructionInput({ instruction, setInstruction, onSubmit, isSubm
           onClick={handleToggleRecording}
           className={cn(
             "absolute top-2 right-2 text-foreground hover:text-accent-foreground",
-            isRecording && "text-destructive hover:text-destructive/80"
+            isRecording && "text-destructive hover:text-destructive/80 animate-pulse"
           )}
           aria-label={isRecording ? "Stop recording" : "Start recording"}
         >
