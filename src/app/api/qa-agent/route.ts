@@ -11,23 +11,13 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch (error) {
     console.error('[QAAgent-DeepSeek] Invalid JSON body:', error);
-    const errorResponse = {
-      from: "qa",
-      content: 'Invalid JSON body received by QA Agent.',
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 400 });
+    return NextResponse.json({ reply: 'Invalid JSON body received by QA Agent.' }, { status: 400 });
   }
 
-  const { prompt, context } = body; // Expect 'prompt' and 'context'
+  const { prompt, context } = body;
 
   if (!prompt) {
-    const errorResponse = {
-      from: "qa",
-      content: "'prompt' (instruction/developer output) is required.",
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 400 });
+    return NextResponse.json({ reply: "'prompt' (instruction/developer output) is required." }, { status: 400 });
   }
 
   const messages = [
@@ -41,8 +31,8 @@ export async function POST(req: NextRequest) {
       headers: {
         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://your-app-url.com", // Optional
-        "X-Title": "CodePilot QA Agent" // Optional
+        "HTTP-Referer": "https://your-app-url.com", 
+        "X-Title": "CodePilot QA Agent" 
       },
       body: JSON.stringify({
         model: OPENROUTER_MODEL,
@@ -53,12 +43,7 @@ export async function POST(req: NextRequest) {
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
       console.error(`[QAAgent-DeepSeek] LLM call failed with status ${llmResponse.status}:`, errorText);
-      const errorResponse = {
-        from: "qa",
-        content: `QA Agent (DeepSeek) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}`,
-        timestamp: Date.now(),
-      };
-      return NextResponse.json(errorResponse, { status: llmResponse.status });
+      return NextResponse.json({ reply: `QA Agent (DeepSeek) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}` }, { status: llmResponse.status });
     }
 
     const data = await llmResponse.json();
@@ -66,24 +51,14 @@ export async function POST(req: NextRequest) {
 
     console.log("[QAAgent-DeepSeek] Interaction Log:", {
       requestBody: { promptLength: prompt.length, contextLength: context?.length || 0 },
-      llmRawResponse: data, // Log raw response
+      llmRawResponseForAudit: data, 
       extractedReply: reply
     });
     
-    const agentResponseMessage = {
-      from: "qa",
-      content: reply,
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(agentResponseMessage);
+    return NextResponse.json({ reply });
 
   } catch (error: any) {
     console.error('[QAAgent-DeepSeek] Unexpected error:', error);
-    const errorResponse = {
-      from: "qa",
-      content: `QA Agent (DeepSeek): Internal Server Error. Details: ${error.message || String(error)}`,
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 500 });
+    return NextResponse.json({ reply: `QA Agent (DeepSeek): Internal Server Error. Details: ${error.message || String(error)}` }, { status: 500 });
   }
 }

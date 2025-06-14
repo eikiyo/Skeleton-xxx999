@@ -1,7 +1,7 @@
 
 // /src/app/api/dispatch-instruction/route.ts
-
 import { type NextRequest, NextResponse } from 'next/server';
+import type { LogEntry } from '@/context/LogContext'; // Assuming LogEntry is defined here or in types
 
 export async function POST(req: NextRequest) {
   let requestBody;
@@ -9,40 +9,71 @@ export async function POST(req: NextRequest) {
     requestBody = await req.json();
   } catch (error) {
     console.error('[DispatchInstruction] Invalid JSON body:', error);
-    return NextResponse.json({ result: { chatLog: [{ from: 'system', content: 'Error: Invalid JSON body provided to dispatcher.', timestamp: Date.now() }] }}, { status: 400 });
+    const systemErrorLog: LogEntry[] = [{ 
+        from: 'system', // 'from' should match LogEntry's source type
+        content: 'Error: Invalid JSON body provided to dispatcher.', 
+        timestamp: Date.now(),
+        id: Date.now().toString() + Math.random().toString() // Add id for LogEntry
+    }];
+    return NextResponse.json({ result: { chatLog: systemErrorLog }}, { status: 400 });
   }
 
-  const { agentType, instruction, files /* language, framework are no longer directly used by new agent handlers */ } = requestBody;
+  const { agentType, instruction, files, chatLog: incomingChatLog = [] } = requestBody;
+  // 'instruction' from frontend is the 'prompt' for agents.
+  // 'files' from frontend is the 'context' for agents.
 
   if (!agentType || !instruction) {
     console.error('[DispatchInstruction] Missing agentType or instruction');
-    return NextResponse.json({ result: { chatLog: [{ from: 'system', content: 'Error: Missing agentType or instruction in dispatch request.', timestamp: Date.now() }] }}, { status: 400 });
+    const systemErrorLog: LogEntry[] = [{ 
+        from: 'system', 
+        content: 'Error: Missing agentType or instruction in dispatch request.', 
+        timestamp: Date.now(),
+        id: Date.now().toString() + Math.random().toString() 
+    }];
+    return NextResponse.json({ result: { chatLog: systemErrorLog }}, { status: 400 });
   }
 
-  let agentUrlPath = '';
-  let agentIdentifier: 'developer' | 'qa' | 'system' = 'system';
+  let agentEndpointPath = '';
+  let agentIdentifier: LogEntry['source'] = 'system'; // Default, will be overridden
 
   if (agentType === 'developer') {
-    agentUrlPath = '/api/developer-agent';
+    agentEndpointPath = '/api/developer-agent';
     agentIdentifier = 'developer';
   } else if (agentType === 'qa') {
-    agentUrlPath = '/api/qa-agent';
+    agentEndpointPath = '/api/qa-agent';
     agentIdentifier = 'qa';
   } else {
     console.error(`[DispatchInstruction] Invalid agent type: ${agentType}`);
-    return NextResponse.json({ result: { chatLog: [{ from: 'system', content: `Error: Invalid agent type '${agentType}'.`, timestamp: Date.now() }] }}, { status: 400 });
+    const systemErrorLog: LogEntry[] = [{ 
+        from: 'system', 
+        content: `Error: Invalid agent type '${agentType}'.`, 
+        timestamp: Date.now(),
+        id: Date.now().toString() + Math.random().toString()
+    }];
+    return NextResponse.json({ result: { chatLog: systemErrorLog }}, { status: 400 });
   }
 
   const currentUrl = new URL(req.url);
-  const agentFullUrl = `${currentUrl.origin}${agentUrlPath}`;
+  const agentFullUrl = `${currentUrl.origin}${agentEndpointPath}`;
 
-  // New agent handlers expect 'prompt' and 'context'
   const agentPayload = {
-    prompt: instruction,
-    context: files ? JSON.stringify(files).slice(0, 2000) : undefined, // Pass files as stringified context
+    prompt: instruction, // User's instruction becomes the agent's prompt
+    context: files ? JSON.stringify(files).slice(0, 5000) : undefined, // Pass files as stringified context, limit size
   };
 
+  // Initialize newLog with a copy of incomingChatLog and the user's new message
+  const newLog: Omit<LogEntry, 'id'>[] = [ // Use Omit as id will be added by LogContext or frontend
+    ...incomingChatLog, // Spread previous log entries
+    { 
+      from: "user", 
+      content: instruction, 
+      timestamp: Date.now() 
+    }
+  ];
+
+
   try {
+    console.log(`[DispatchInstruction] Calling ${agentIdentifier} agent at ${agentFullUrl} with prompt: "${instruction.substring(0,50)}..."`);
     const agentRes = await fetch(agentFullUrl, {
       method: 'POST',
       headers: { 
@@ -51,49 +82,56 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(agentPayload),
     });
 
-    const agentResultJson = await agentRes.json();
+    const agentResponseData = await agentRes.json();
     
-    let chatLogEntry;
-
-    // New agent handlers return { from: "...", content: "...", timestamp: ... } directly on success
-    // or { from: "...", content: "Error message...", timestamp: ...} on handled error
-    if (agentResultJson && typeof agentResultJson.from === 'string' && typeof agentResultJson.content === 'string') {
-      chatLogEntry = agentResultJson;
-    } else if (agentRes.ok && agentResultJson && typeof agentResultJson.reply === 'string') { 
-      // This case is for the immediate {reply: "..."} if agents don't return full chatlog entry yet
-      // This might be redundant if agent handlers are updated to return the full entry
-      chatLogEntry = {
-        from: agentIdentifier,
-        content: agentResultJson.reply,
-        timestamp: Date.now(),
-      };
-    } else { // Agent call failed (non-2xx) or unexpected response format
-      console.error(`[DispatchInstruction] Agent ${agentType} call failed or returned error. Status: ${agentRes.status}. Response:`, agentResultJson);
-      const errorContent = agentResultJson?.content || agentResultJson?.error || agentResultJson?.details || JSON.stringify(agentResultJson) || 'Unknown error from agent.';
-      chatLogEntry = {
-        from: agentIdentifier, 
-        content: `Error interacting with ${agentType} agent (Status: ${agentRes.status}): ${String(errorContent).slice(0, 500)}`,
-        timestamp: Date.now(),
-      };
+    let agentReplyContent = "No reply from agent or error.";
+    if (agentRes.ok && agentResponseData && typeof agentResponseData.reply === 'string') {
+      agentReplyContent = agentResponseData.reply;
+    } else if (!agentRes.ok && agentResponseData && typeof agentResponseData.reply === 'string') { // Agent returned an error with a reply field
+      agentReplyContent = `Error from ${agentIdentifier} (Status: ${agentRes.status}): ${agentResponseData.reply}`;
+      console.error(`[DispatchInstruction] Agent ${agentIdentifier} call failed. Status: ${agentRes.status}. Response:`, agentResponseData.reply);
+    } else { // Other types of errors or unexpected responses
+      const errorDetails = JSON.stringify(agentResponseData).slice(0, 200);
+      agentReplyContent = `Error interacting with ${agentIdentifier} agent (Status: ${agentRes.status}). Details: ${errorDetails}`;
+      console.error(`[DispatchInstruction] Agent ${agentIdentifier} call failed or returned unexpected response. Status: ${agentRes.status}. Response:`, agentResponseData);
     }
     
-    console.log('[InstructionDispatch] Interaction Log:', {
-      requestTimestamp: new Date().toISOString(),
-      agentType,
-      instructionSummary: String(instruction).slice(0,100) + '...',
-      contextProvided: !!agentPayload.context,
-      agentResponseForChat: chatLogEntry 
+    // Add agent's response to the newLog
+    newLog.push({
+      from: agentIdentifier,
+      content: agentReplyContent,
+      timestamp: Date.now(),
     });
+    
+    console.log(`[DispatchInstruction] ${agentIdentifier} agent replied. Total log entries: ${newLog.length}`);
 
-    return NextResponse.json({ result: { chatLog: [chatLogEntry] } });
+    // The frontend InstructionChat expects an array of LogEntry, each with an id.
+    // The LogContext on the frontend will typically handle adding IDs when logs are added.
+    // Here, we are constructing the full log to send back.
+    // For compatibility with InstructionChat, ensure entries from here match its expected structure
+    // or let InstructionChat handle ID generation when it receives this log.
+    // For now, we assume InstructionChat will handle IDs or the LogContext handles it.
+    // Let's make sure returned logs have 'id' for direct use in frontend if it expects it.
+     const finalLogForFrontend = newLog.map(entry => ({
+      ...entry,
+      id: (entry as any).id || (Date.now().toString() + Math.random().toString()) // Ensure ID exists
+    }));
+
+
+    return NextResponse.json({ result: { chatLog: finalLogForFrontend } });
 
   } catch (error: any) {
     console.error(`[DispatchInstruction] Error calling agent ${agentType} at ${agentFullUrl}:`, error);
-    const systemError = {
+    // Add system error to the log and return
+    newLog.push({
         from: 'system',
         content: `Internal Server Error during agent dispatch: ${error.message || String(error)}`,
         timestamp: Date.now()
-    };
-    return NextResponse.json({ result: { chatLog: [systemError] } }, { status: 500 });
+    });
+     const finalLogForFrontendOnError = newLog.map(entry => ({
+      ...entry,
+      id: (entry as any).id || (Date.now().toString() + Math.random().toString())
+    }));
+    return NextResponse.json({ result: { chatLog: finalLogForFrontendOnError } }, { status: 500 });
   }
 }

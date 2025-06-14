@@ -6,30 +6,20 @@ const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_MODEL = "qwen/qwen3-235b-a22b:free"; // Corrected model name as per latest
 // const OPENROUTER_MODEL = "qwen/qwen-2-72b-instruct"; // Previous model if needed
 
-
 export async function POST(req: NextRequest) {
   let body;
   try {
     body = await req.json();
   } catch (error) {
     console.error('[DeveloperAgent-Qwen] Invalid JSON body:', error);
-    const errorResponse = {
-      from: "developer",
-      content: 'Invalid JSON body received by Developer Agent.',
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 400 });
+    // Return a structure that dispatch-instruction might expect for error logging
+    return NextResponse.json({ reply: 'Invalid JSON body received by Developer Agent.' }, { status: 400 });
   }
 
-  const { prompt, context } = body; // Expect 'prompt' and 'context'
+  const { prompt, context } = body;
 
   if (!prompt) {
-    const errorResponse = {
-      from: "developer",
-      content: "'prompt' (featureRequest/instruction) is required.",
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 400 });
+     return NextResponse.json({ reply: "'prompt' (featureRequest/instruction) is required." }, { status: 400 });
   }
 
   const messages = [
@@ -43,8 +33,8 @@ export async function POST(req: NextRequest) {
       headers: {
         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://your-app-url.com", // Optional: OpenRouter recommends adding referer
-        "X-Title": "CodePilot Developer Agent" // Optional: For OpenRouter logging
+        "HTTP-Referer": "https://your-app-url.com", 
+        "X-Title": "CodePilot Developer Agent" 
       },
       body: JSON.stringify({
         model: OPENROUTER_MODEL,
@@ -55,12 +45,7 @@ export async function POST(req: NextRequest) {
     if (!llmResponse.ok) {
       const errorText = await llmResponse.text();
       console.error(`[DeveloperAgent-Qwen] LLM call failed with status ${llmResponse.status}:`, errorText);
-      const errorResponse = {
-        from: "developer",
-        content: `Developer Agent (Qwen) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}`,
-        timestamp: Date.now(),
-      };
-      return NextResponse.json(errorResponse, { status: llmResponse.status });
+      return NextResponse.json({ reply: `Developer Agent (Qwen) API call failed. Status: ${llmResponse.status}. Details: ${errorText.slice(0,500)}` }, { status: llmResponse.status });
     }
 
     const data = await llmResponse.json();
@@ -68,24 +53,15 @@ export async function POST(req: NextRequest) {
     
     console.log("[DeveloperAgent-Qwen] Interaction Log:", {
       requestBody: { promptLength: prompt.length, contextLength: context?.length || 0 },
-      llmRawResponse: data, // Log raw response for detailed audit
+      llmRawResponseForAudit: data, 
       extractedReply: reply
     });
 
-    const agentResponseMessage = {
-      from: "developer",
-      content: reply,
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(agentResponseMessage);
+    // Return the simple reply for dispatch-instruction to format
+    return NextResponse.json({ reply });
 
   } catch (error: any) {
     console.error('[DeveloperAgent-Qwen] Unexpected error:', error);
-    const errorResponse = {
-      from: "developer",
-      content: `Developer Agent (Qwen): Internal Server Error. Details: ${error.message || String(error)}`,
-      timestamp: Date.now(),
-    };
-    return NextResponse.json(errorResponse, { status: 500 });
+    return NextResponse.json({ reply: `Developer Agent (Qwen): Internal Server Error. Details: ${error.message || String(error)}` }, { status: 500 });
   }
 }
