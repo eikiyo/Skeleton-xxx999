@@ -15,14 +15,14 @@ import {
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3 } from 'lucide-react'; // Added Edit3 for Canvas
+import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3, Layers } from 'lucide-react'; // Added Layers
 import { FileExplorer } from './file-explorer';
 import { GitControls } from './git-controls';
 import { CodeEditor } from './code-editor';
 import { ConsoleOutput } from './console-output';
 import { InstructionInput } from './instruction-input';
 import { AgentPanels } from './agent-panels';
-import { CanvasGitActions } from './canvas-git-actions'; // New component
+import { CanvasGitActions } from './canvas-git-actions';
 import type { FileSystem, LogEntry, AgentType } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -70,11 +70,11 @@ export function MainLayout(props: MainLayoutProps) {
   const isAgentsTabActive = activeSidebarTab === 'agents';
   const isChatTabActive = activeSidebarTab === 'chat';
   const isGitTabActive = activeSidebarTab === 'git';
-  const isCanvasTabActive = activeSidebarTab === 'canvas'; // Renamed from isFilesTabActive
+  const isCanvasTabActive = activeSidebarTab === 'canvas';
+  const isOthersTabActive = activeSidebarTab === 'others';
 
-  const showConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive;
-  const showLeftColumnInstructionInput = false; 
-  const showLeftColumnContent = !isChatTabActive && !isAgentsTabActive;
+  const showConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive && !isOthersTabActive;
+  const showLeftColumnContent = !isChatTabActive && !isAgentsTabActive && !isOthersTabActive;
 
 
   return (
@@ -118,11 +118,20 @@ export function MainLayout(props: MainLayoutProps) {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton 
-                tooltip="Canvas" // Renamed from "Files"
-                isActive={isCanvasTabActive} // Renamed from isFilesTabActive
-                onClick={() => setActiveSidebarTab('canvas')} // Renamed
+                tooltip="Canvas"
+                isActive={isCanvasTabActive}
+                onClick={() => setActiveSidebarTab('canvas')}
               >
                 <Edit3 /> <span>Canvas</span> 
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton 
+                tooltip="Others"
+                isActive={isOthersTabActive}
+                onClick={() => setActiveSidebarTab('others')}
+              >
+                <Layers /> <span>Others</span> 
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -146,13 +155,13 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          (isChatTabActive || isAgentsTabActive || isGitTabActive || isCanvasTabActive) && "pb-4" 
+          (isChatTabActive || isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive) && "pb-4" 
         )}>
           {/* Left Column (Sidebar Content) */}
           {showLeftColumnContent && (
             <div className={cn(
               "md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto",
-              (isChatTabActive || isAgentsTabActive) && "md:hidden" // Hide left column for chat & agents
+               // This condition will hide the left column for Chat, Agents, and Others tabs.
             )}>
               {isGitTabActive && (
                 <GitControls
@@ -164,7 +173,7 @@ export function MainLayout(props: MainLayoutProps) {
                   isCloned={props.isCloned}
                 />
               )}
-              {(isGitTabActive || isCanvasTabActive) && ( // Show FileExplorer for Git and Canvas
+              {(isGitTabActive || isCanvasTabActive) && (
                 <Card className="h-full shadow-sm flex-grow">
                   <FileExplorer
                     files={props.files}
@@ -176,10 +185,10 @@ export function MainLayout(props: MainLayoutProps) {
             </div>
           )}
 
-          {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas) */}
+          {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas / Others) */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
-            (!showLeftColumnContent || isChatTabActive || isAgentsTabActive) ? "md:col-span-3" : "md:col-span-2"
+            (!showLeftColumnContent || isChatTabActive || isAgentsTabActive || isOthersTabActive) ? "md:col-span-3" : "md:col-span-2"
           )}>
             {isAgentsTabActive ? (
                 <AgentPanels
@@ -230,7 +239,25 @@ export function MainLayout(props: MainLayoutProps) {
                         />
                     </div>
                 </div>
-            ) : ( // This covers 'git' tab for the center panel (FileExplorer already in left)
+            ) : isOthersTabActive ? (
+                 <div className="h-full flex flex-col gap-4">
+                    <div className="flex-grow basis-2/3 min-h-0">
+                        <ConsoleOutput logs={props.logs} />
+                    </div>
+                    <div className="shrink-0 basis-1/3">
+                        <Card className="h-full shadow-sm">
+                            <CardHeader className="py-3 px-4 border-b">
+                                <CardTitle className="text-base font-medium font-headline">Shell Terminal</CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-4 h-full flex items-center justify-center">
+                                <p className="text-muted-foreground text-center">
+                                    Shell terminal interface will be displayed here.
+                                </p>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </div>
+            ) : ( // This covers 'git' tab for the center panel
                  <div className="h-full">
                     <CodeEditor
                       filePath={props.selectedFilePath}
