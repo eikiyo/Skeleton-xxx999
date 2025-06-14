@@ -13,13 +13,9 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarGroupContent
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { Settings, Bot, GitBranch, Files, LayoutGrid } from 'lucide-react';
+import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare } from 'lucide-react';
 import { FileExplorer } from './file-explorer';
 import { GitControls } from './git-controls';
 import { CodeEditor } from './code-editor';
@@ -28,7 +24,7 @@ import { InstructionInput } from './instruction-input';
 import { AgentPanels } from './agent-panels';
 import type { FileSystem, LogEntry, AgentType } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface MainLayoutProps {
   // Git State
@@ -91,6 +87,15 @@ export function MainLayout(props: MainLayoutProps) {
                 <Bot /> <span>Agents</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+             <SidebarMenuItem>
+              <SidebarMenuButton 
+                tooltip="Chat"
+                isActive={activeSidebarTab === 'chat'}
+                onClick={() => setActiveSidebarTab('chat')}
+              >
+                <MessageSquare /> <span>Chat</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Git Controls"
@@ -131,7 +136,7 @@ export function MainLayout(props: MainLayoutProps) {
         <div className="flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto">
           {/* Left Column (Sidebar Content) or Main Content on Mobile */}
           <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
-            {activeSidebarTab === 'agents' && (
+            {(activeSidebarTab === 'agents' || activeSidebarTab === 'chat') && (
               <InstructionInput
                 instruction={props.instruction}
                 setInstruction={props.setInstruction}
@@ -177,6 +182,17 @@ export function MainLayout(props: MainLayoutProps) {
                   addLog={props.addLog}
                   applyPatch={props.applyPatch}
                 />
+            ) : activeSidebarTab === 'chat' ? (
+                <Card className="h-full flex flex-col items-center justify-center shadow-sm">
+                    <CardHeader>
+                        <CardTitle className="text-xl font-headline text-center">Chat Interface</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-muted-foreground text-center">
+                            Use the instruction input to interact.
+                        </p>
+                    </CardContent>
+                </Card>
             ) : (
                 <div className="h-[calc(100%-180px)] min-h-[300px]"> {/* Adjust height as needed */}
                     <CodeEditor
@@ -197,3 +213,4 @@ export function MainLayout(props: MainLayoutProps) {
     </SidebarProvider>
   );
 }
+
