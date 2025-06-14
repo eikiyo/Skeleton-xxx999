@@ -1,210 +1,97 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { collaborativeGenerateCode, CollaborativeCodeGenerationOutput }  from '@/ai/flows/collaborative-code-generation';
-import { Loader2, Copy, CheckSquare, AlertCircle, Info } from 'lucide-react';
+// import { collaborativeGenerateCode, CollaborativeCodeGenerationOutput }  from '@/ai/flows/collaborative-code-generation'; // No longer used with simplified UI
+// import { Loader2, Copy, CheckSquare, AlertCircle, Info } from 'lucide-react'; // No longer used with simplified UI
 
 interface DeveloperAgentPanelProps {
-  instruction: string;
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
-  selectedFilePath: string | null;
-  setFileContent: (path: string, content: string) => void;
-  currentFileContentForContext: string | null;
+  // instruction: string; // Removed
+  // selectedFilePath: string | null; // Removed
+  // setFileContent: (path: string, content: string) => void; // Removed
+  // currentFileContentForContext: string | null; // Removed
 }
 
-export function DeveloperAgentPanel({ instruction, addLog, selectedFilePath, setFileContent, currentFileContentForContext }: DeveloperAgentPanelProps) {
-  const [language, setLanguage] = useState('typescript');
-  const [framework, setFramework] = useState('nextjs');
-  const [existingCode, setExistingCode] = useState(''); // This will be managed by useEffect
-  const [isLoading, setIsLoading] = useState(false);
-  const [output, setOutput] = useState<CollaborativeCodeGenerationOutput | null>(null);
+export function DeveloperAgentPanel({ addLog }: DeveloperAgentPanelProps) {
+  const [api, setApi] = useState('');
+  const [role, setRole] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [isLoading, setIsLoading] = useState(false); // Kept for potential future use
 
-  useEffect(() => {
-    if (selectedFilePath && currentFileContentForContext !== null) {
-      setExistingCode(currentFileContentForContext);
-    } else if (!selectedFilePath) {
-      // If no file is selected, you might want to clear the existingCode 
-      // or leave it as is for the user to manually input context.
-      // For now, let's clear it to avoid confusion if user deselects a file.
-      setExistingCode(''); 
-    }
-  }, [selectedFilePath, currentFileContentForContext]);
+  // useEffect for existingCode is removed as the field is gone.
 
   const handleSubmit = async () => {
-    if (!instruction.trim()) {
-      addLog("Developer Agent: Feature request cannot be empty.", "error");
-      return;
-    }
-    setIsLoading(true);
-    setOutput(null);
-    addLog(`Developer Agent: Starting collaborative code generation for "${instruction}"...`, "agent");
-
-    try {
-      const result = await collaborativeGenerateCode({
-        featureRequest: instruction,
-        programmingLanguage: language, 
-        framework: framework,
-        existingCodeContext: existingCode, // Uses the state variable `existingCode`
-      });
-      setOutput(result);
-
-      if (result.status === 'success') {
-        addLog(`Collaborative Agent: ${result.message}`, "success");
-      } else if (result.status === 'needs_clarification') {
-        addLog(`Collaborative Agent: ${result.message}`, "agent");
-      } else { 
-        addLog(`Collaborative Agent: ${result.message}`, "error");
-      }
-
-    } catch (error) {
-      console.error("Error in collaborative code generation:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      addLog(`Collaborative Agent: Error during generation. ${errorMessage}`, "error");
-      setOutput({ status: 'error', message: `An unexpected error occurred: ${errorMessage}` });
-    } finally {
-      setIsLoading(false);
-    }
+    // Current simplified UI does not trigger this.
+    // This would need to be re-implemented if a submit button is added for these new fields.
+    addLog(`Developer Agent: Submit clicked with API: ${api}, Role: ${role}, Instructions: ${instructions}`, "agent");
+    // Example of how it might be used in the future:
+    // setIsLoading(true);
+    // try {
+    //   const result = await someNewAgentFlow({ api, role, instructions });
+    //   addLog("Developer Agent: Processed.", "success");
+    // } catch (error) {
+    //   addLog("Developer Agent: Error.", "error");
+    // } finally {
+    //   setIsLoading(false);
+    // }
   };
   
-  const handleCopyToClipboard = (text: string | undefined) => {
-    if (!text) {
-      addLog("No code to copy.", "error");
-      return;
-    }
-    navigator.clipboard.writeText(text)
-      .then(() => addLog("Code copied to clipboard!", "success"))
-      .catch(err => addLog("Failed to copy code: " + err, "error"));
-  };
-
-  const handleApplyToEditor = () => {
-    if (output?.finalCodeSnippet && selectedFilePath) {
-      setFileContent(selectedFilePath, output.finalCodeSnippet);
-      addLog(`Collaborative Agent: Applied generated code to ${selectedFilePath}.`, "success");
-    } else {
-      if (!selectedFilePath) {
-        addLog("Collaborative Agent: No file selected in the editor to apply code to. Please select a file.", "error");
-      }
-      if (!output?.finalCodeSnippet) {
-         addLog("Collaborative Agent: No final code snippet available to apply.", "error");
-      }
-    }
-  };
+  // handleCopyToClipboard and handleApplyToEditor are removed as output display is gone.
 
   return (
-    <Card className="w-full shadow-lg">
+    <Card className="w-full h-full flex flex-col shadow-lg">
       <CardHeader>
-        <CardTitle className="font-headline">Developer Agent (Collaborative Mode)</CardTitle>
-        <CardDescription>Generate code snippets with automated QA review and refinement. Context from the selected file is automatically loaded.</CardDescription>
+        <CardTitle className="font-headline">Developer Agent</CardTitle>
+        <CardDescription>Configure the Developer Agent.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-6 flex-grow overflow-y-auto">
         <div className="space-y-2">
-          <Label htmlFor="dev-feature-request">Feature Request (from Instruction Input)</Label>
-          <Textarea id="dev-feature-request" value={instruction} readOnly rows={3} className="font-code bg-muted" />
+          <Label htmlFor="dev-api">API</Label>
+          <Input 
+            id="dev-api" 
+            value={api} 
+            onChange={(e) => setApi(e.target.value)} 
+            placeholder="Enter API endpoint or key" 
+          />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="dev-language">Programming Language (Info Only)</Label>
-            <Input id="dev-language" value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="e.g., typescript" readOnly />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="dev-framework">Framework/Library (Info Only)</Label>
-            <Input id="dev-framework" value={framework} onChange={(e) => setFramework(e.target.value)} placeholder="e.g., nextjs" readOnly />
-          </div>
-        </div>
+        
         <div className="space-y-2">
-          <Label htmlFor="dev-existing-code">
-            Existing Code Context (Auto-loaded from selected file)
-            {!selectedFilePath && " (Select a file or paste context manually)"}
-          </Label>
+          <Label htmlFor="dev-role">Role</Label>
           <Textarea
-            id="dev-existing-code"
-            value={existingCode}
-            onChange={(e) => setExistingCode(e.target.value)}
-            placeholder={selectedFilePath ? "Context from selected file loaded. You can edit it here." : "Provide existing code if relevant for context..."}
+            id="dev-role"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="Define the agent's role or persona..."
+            rows={3}
+            className="font-code"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="dev-instructions">Instructions</Label>
+          <Textarea
+            id="dev-instructions"
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="Provide specific instructions for the agent..."
             rows={5}
             className="font-code"
           />
         </div>
-        <Button onClick={handleSubmit} disabled={isLoading || !instruction.trim()} className="w-full">
+        
+        {/* Submit button removed for now, can be re-added if functionality for these fields is defined */}
+        {/* <Button onClick={handleSubmit} disabled={isLoading} className="w-full">
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Generate Code (Collaboratively)
-        </Button>
+          Submit to Developer Agent
+        </Button> */}
 
-        {output && (
-          <div className="space-y-4 pt-4 border-t mt-6">
-            <h3 className="text-lg font-semibold font-headline">Agent Output</h3>
-            
-            {output.status === 'error' && (
-              <div className="p-4 border rounded-md bg-destructive/10 text-destructive flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 mt-0.5" />
-                <p>{output.message}</p>
-              </div>
-            )}
-
-            {output.status === 'needs_clarification' && (
-              <div className="p-4 border rounded-md bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 flex items-start gap-2">
-                 <Info className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                 <div>
-                    <p className="font-semibold">{output.message}</p>
-                    {output.qaFeedbackOnFinalIteration && (
-                        <div className="mt-2">
-                            <Label>Last QA Feedback:</Label>
-                            <ScrollArea className="h-32 w-full rounded-md border p-2 mt-1 bg-background">
-                                <pre className="font-code text-xs whitespace-pre-wrap">{output.qaFeedbackOnFinalIteration}</pre>
-                            </ScrollArea>
-                        </div>
-                    )}
-                 </div>
-              </div>
-            )}
-            
-            {output.finalCodeSnippet && (
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <Label>
-                    {output.status === 'success' ? 'Final Code Snippet' : 'Last Generated Code Snippet'}
-                  </Label>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => handleCopyToClipboard(output.finalCodeSnippet)}>
-                      <Copy className="h-4 w-4 mr-2" /> Copy Snippet
-                    </Button>
-                    <Button 
-                      variant="default" 
-                      size="sm" 
-                      onClick={handleApplyToEditor}
-                      disabled={!selectedFilePath || !output.finalCodeSnippet}
-                      title={!selectedFilePath ? "Select a file in the editor to apply code" : "Apply to selected file"}
-                    >
-                      <CheckSquare className="h-4 w-4 mr-2" /> Apply to Editor
-                    </Button>
-                  </div>
-                </div>
-                <ScrollArea className="h-64 w-full rounded-md border p-4 bg-background">
-                  <pre className="font-code text-sm whitespace-pre-wrap">{output.finalCodeSnippet}</pre>
-                </ScrollArea>
-              </div>
-            )}
-
-            {output.explanation && (
-              <div className="space-y-2">
-                <Label>Explanation</Label>
-                <p className="text-sm text-muted-foreground p-4 border rounded-md bg-background">{output.explanation}</p>
-              </div>
-            )}
-             {!output.finalCodeSnippet && output.status !== 'error' && output.status !== 'needs_clarification' && (
-                <div className="p-4 border rounded-md bg-muted text-muted-foreground">
-                    <p>{output.message || "Waiting for agent response..."}</p>
-                </div>
-            )}
-          </div>
-        )}
+        {/* Output display section is removed */}
       </CardContent>
     </Card>
   );

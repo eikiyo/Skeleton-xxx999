@@ -10,25 +10,19 @@ import type { AgentType } from '@/types';
 interface AgentPanelsProps {
   selectedAgent: AgentType | null;
   setSelectedAgent: (agent: AgentType | null) => void;
-  instruction: string;
-  currentCode: string; // Content of the currently selected file, primarily for QA Agent
-  currentFileContentForDeveloperAgent: string; // Content of the currently selected file, for Developer Agent context
+  // instruction: string; // Removed: Handled within panels or not at all for this new design
+  // currentCode: string; // Removed: QA panel simplified
+  // currentFileContentForDeveloperAgent: string; // Removed: Dev panel simplified
   addLog: (message: string, type?: 'info' | 'error' | 'success' | 'agent') => void;
-  applyPatch: (patch: string) => void;
-  selectedFilePath: string | null; 
-  setFileContent: (path: string, content: string) => void;
+  // applyPatch: (patch: string) => void; // Removed: QA panel simplified
+  // selectedFilePath: string | null; // Removed: Dev panel simplified
+  // setFileContent: (path: string, content: string) => void; // Removed: Dev panel simplified
 }
 
 export function AgentPanels({
   selectedAgent,
   setSelectedAgent,
-  instruction,
-  currentCode,
-  currentFileContentForDeveloperAgent,
   addLog,
-  applyPatch,
-  selectedFilePath,
-  setFileContent
 }: AgentPanelsProps) {
   
   const handleTabChange = (value: string) => {
@@ -36,25 +30,19 @@ export function AgentPanels({
   };
 
   return (
-    <Tabs value={selectedAgent || "developer"} onValueChange={handleTabChange} className="w-full">
+    <Tabs value={selectedAgent || "developer"} onValueChange={handleTabChange} className="w-full h-full flex flex-col">
       <TabsList className="grid w-full grid-cols-2 mb-4">
         <TabsTrigger value="developer">Developer Agent</TabsTrigger>
         <TabsTrigger value="qa">QA Agent</TabsTrigger>
       </TabsList>
-      <TabsContent value="developer">
+      <TabsContent value="developer" className="flex-grow">
         <DeveloperAgentPanel 
-          instruction={instruction} 
           addLog={addLog}
-          selectedFilePath={selectedFilePath}
-          setFileContent={setFileContent}
-          currentFileContentForContext={currentFileContentForDeveloperAgent}
         />
       </TabsContent>
-      <TabsContent value="qa">
+      <TabsContent value="qa" className="flex-grow">
         <QAAgentPanel 
-          currentCode={currentCode} 
           addLog={addLog} 
-          applyPatch={applyPatch} 
         />
       </TabsContent>
     </Tabs>

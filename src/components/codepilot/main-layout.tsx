@@ -85,7 +85,7 @@ export function MainLayout(props: MainLayoutProps) {
             <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Agents" 
-                isActive={isAgentsTabActive || activeSidebarTab === 'agents'}
+                isActive={isAgentsTabActive}
                 onClick={() => setActiveSidebarTab('agents')}
               >
                 <Bot /> <span>Agents</span>
@@ -137,11 +137,14 @@ export function MainLayout(props: MainLayoutProps) {
             <SidebarTrigger />
         </header>
 
-        <div className="flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto">
-          {/* Left Column (Sidebar Content) - Hidden in Chat mode */}
-          {activeSidebarTab !== 'chat' && (
+        <div className={cn(
+          "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
+          activeSidebarTab === 'agents' && "pb-0" 
+        )}>
+          {/* Left Column (Sidebar Content) - Hidden in Chat mode & Agents mode (as instruction input is removed) */}
+          {activeSidebarTab !== 'chat' && activeSidebarTab !== 'agents' && (
             <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
-              {activeSidebarTab === 'agents' && (
+              {/* {activeSidebarTab === 'agents' && (
                 <InstructionInput
                   instruction={props.instruction}
                   setInstruction={props.setInstruction}
@@ -149,7 +152,7 @@ export function MainLayout(props: MainLayoutProps) {
                   isSubmitting={props.isSubmittingInstruction}
                   selectedAgent={props.selectedAgent}
                 />
-              )}
+              )} */}
               {activeSidebarTab === 'git' && (
                 <GitControls
                   repoUrl={props.repoUrl}
@@ -176,22 +179,22 @@ export function MainLayout(props: MainLayoutProps) {
           )}
 
           {/* Center Column (Agent Panels / Code Editor / Chat Interface) */}
-          {/* Takes full width in chat mode */}
+          {/* Takes full width in chat mode, and for agents mode if left column is hidden */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
-            activeSidebarTab === 'chat' ? "md:col-span-3" : "md:col-span-2"
+            (activeSidebarTab === 'chat' || activeSidebarTab === 'agents') ? "md:col-span-3" : "md:col-span-2"
           )}>
             {activeSidebarTab === 'agents' ? (
                 <AgentPanels
                   selectedAgent={props.selectedAgent}
                   setSelectedAgent={props.setSelectedAgent}
-                  instruction={props.instruction}
-                  currentCode={props.currentFileContent} 
-                  currentFileContentForDeveloperAgent={props.currentFileContent}
-                  selectedFilePath={props.selectedFilePath}
-                  setFileContent={props.setFileContent}
+                  // instruction={props.instruction} // No longer needed here
+                  // currentCode={props.currentFileContent} // No longer needed here
+                  // currentFileContentForDeveloperAgent={props.currentFileContent} // No longer needed here
+                  // selectedFilePath={props.selectedFilePath} // No longer needed here
+                  // setFileContent={props.setFileContent} // No longer needed here
                   addLog={props.addLog}
-                  applyPatch={props.applyPatch}
+                  // applyPatch={props.applyPatch} // No longer needed here
                 />
             ) : activeSidebarTab === 'chat' ? (
                 <>
@@ -231,8 +234,8 @@ export function MainLayout(props: MainLayoutProps) {
           </div>
         </div>
         
-        {/* Bottom section for Console - conditionally rendered (hidden for chat) */}
-        {activeSidebarTab !== 'chat' && (
+        {/* Bottom section for Console - conditionally rendered (hidden for chat and agents tab) */}
+        {activeSidebarTab !== 'chat' && activeSidebarTab !== 'agents' && (
           <div className="h-[200px] md:h-[250px] p-4 pt-0">
             <ConsoleOutput logs={props.logs} />
           </div>
