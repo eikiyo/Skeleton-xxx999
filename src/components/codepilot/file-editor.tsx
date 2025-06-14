@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import * as esprima from "esprima";
 import * as ts from "typescript";
-import { Save } from "lucide-react"; // Import Save icon
+import { Save, Loader2 } from "lucide-react"; // Import Save and Loader2 icons
 
 function getSyntaxError(path: string, code: string): string | null {
   const fileName = path.split('/').pop() || path;
@@ -70,8 +70,8 @@ function getSyntaxError(path: string, code: string): string | null {
 
 interface FileEditorProps {
   file: FileNode | null;
-  repoUrl?: string; // For "Save to GitHub"
-  targetBranch?: string; // For "Save to GitHub"
+  repoUrl?: string; 
+  targetBranch?: string;
 }
 
 export default function FileEditor({
@@ -79,11 +79,13 @@ export default function FileEditor({
   repoUrl,
   targetBranch,
 }: FileEditorProps) {
-  const { updateFile } = useFileSystem();
+  const { updateFile: updateFileInContext, getFile } = useFileSystem(); // Renamed to avoid conflict
   const { toast } = useToast();
   const [content, setContent] = useState(file?.content || "");
   const [syntaxError, setSyntaxError] = useState<string | null>(null);
   const [isSavingToGitHub, setIsSavingToGitHub] = useState(false);
+  const [isSavingToMemory, setIsSavingToMemory] = useState(false);
+
 
   useEffect(() => {
     setContent(file?.content || "");
@@ -93,15 +95,22 @@ export default function FileEditor({
   useEffect(() => {
     if (file && (file.path.endsWith(".js") || file.path.endsWith(".jsx") || file.path.endsWith(".ts") || file.path.endsWith(".tsx"))) {
       const handler = setTimeout(() => {
-        setSyntaxError(getSyntaxError(file.path, content));
+        // Ensure file object is current before checking syntax, especially its name property
+        const currentFile = file ? getFile(file.path) : null;
+        if (currentFile && currentFile.name) { // Check if currentFile and currentFile.name are valid
+             setSyntaxError(getSyntaxError(currentFile.name, content));
+        } else {
+            setSyntaxError(null); // Or handle as error if file/name is unexpectedly missing
+        }
       }, 300);
       return () => clearTimeout(handler);
     } else {
       setSyntaxError(null); 
     }
-  }, [content, file]);
+  }, [content, file, getFile]);
 
-  function handleSaveToMemory() {
+
+  async function handleSaveToMemory() {
     if (syntaxError) {
       toast({
         title: "Syntax Error",
@@ -111,7 +120,11 @@ export default function FileEditor({
       return;
     }
     if (file) {
-      updateFile(file.path, content);
+      setIsSavingToMemory(true);
+      updateFileInContext(file.path, content);
+      // Simulate a small delay for visual feedback if needed
+      await new Promise(resolve => setTimeout(resolve, 300)); 
+      setIsSavingToMemory(false);
       toast({
         title: "File Saved (In-Memory)",
         description: `${file.name} has been saved to the session.`,
@@ -133,18 +146,16 @@ export default function FileEditor({
       return;
     }
 
-    // Parse owner and repo from repoUrl (e.g., https://github.com/owner/repo.git or git@github.com:owner/repo.git)
     let owner, repoName;
     try {
-        const url = new URL(repoUrl.replace(/\.git$/, '')); // Remove .git suffix for URL parser
+        const url = new URL(repoUrl.replace(/\.git$/, ''));
         const pathParts = url.pathname.split('/').filter(Boolean);
         if (pathParts.length >= 2) {
-            owner = pathParts[pathParts.length -2];
-            repoName = pathParts[pathParts.length -1];
+            owner = pathParts[pathParts.length - 2];
+            repoName = pathParts[pathParts.length - 1];
         } else {
-          // Try regex for SSH-like URLs: git@github.com:owner/repo.git
-          const sshMatch = repoUrl.match(/[:/]([\w-]+)\/([\w-]+)\.git$/);
-          if (sshMatch && sshMatch.length === 3) {
+          const sshMatch = repoUrl.match(/[:/]([\w-]+)\/([\w-]+)(\.git)?$/);
+          if (sshMatch && sshMatch.length >= 3) { // Adjusted to match 3 groups for user/repo.git or user/repo
             owner = sshMatch[1];
             repoName = sshMatch[2];
           } else {
@@ -152,7 +163,7 @@ export default function FileEditor({
           }
         }
     } catch (e) {
-        toast({ title: "Invalid Repository URL", description: "Could not parse owner and repository name from the URL.", variant: "destructive"});
+        toast({ title: "Invalid Repository URL", description: `Could not parse owner and repository name. ${e instanceof Error ? e.message : ''}`, variant: "destructive"});
         return;
     }
     
@@ -161,8 +172,10 @@ export default function FileEditor({
       return;
     }
 
+    const commitMessage = window.prompt(`Enter commit message for ${file.name}:`, `Update ${file.name}`) || `Update ${file.name}`;
+    
     const filePathInRepo = file.path.startsWith('/') ? file.path.substring(1) : file.path;
-    const commitMessage = `Update ${file.name}`;
+    const fileSha = (file as any).sha; // Attempt to get SHA, assuming FileNode might have it
 
     setIsSavingToGitHub(true);
     try {
@@ -176,7 +189,7 @@ export default function FileEditor({
           content,
           message: commitMessage,
           branch: targetBranch,
-          // sha: We are omitting SHA for now. This means updates to existing files might fail if SHA is required by GitHub API.
+          ...(fileSha ? { sha: fileSha } : {}),
         }),
       });
 
@@ -185,15 +198,23 @@ export default function FileEditor({
       if (!response.ok) {
         toast({
           title: "GitHub Save Failed",
-          description: data.error || `Server responded with ${response.status}`,
+          description: data.error || data.message || `Server responded with ${response.status}`,
           variant: "destructive",
         });
       } else {
         toast({
           title: "Saved to GitHub",
-          description: `${file.name} has been saved to branch ${targetBranch}. SHA: ${data.githubResponse?.commit?.sha?.substring(0,7) || 'N/A'}`,
+          description: `${file.name} has been saved to branch ${targetBranch}. Commit: ${data.commit?.sha?.substring(0,7) || 'N/A'}`,
         });
         // Optionally update in-memory file's SHA if backend returns it and if FileNode supports it.
+        // For now, we also update the in-memory content to match what was saved.
+        updateFileInContext(file.path, content); 
+        if (data.content?.sha && file) {
+            const updatedFileNode = { ...file, content, sha: data.content.sha };
+             // This is a conceptual update. The FileSystemContext needs a way to update a node's SHA.
+             // For now, we'll just rely on the content being in sync.
+             // updateFileNodeInContext(file.path, updatedFileNode);
+        }
       }
     } catch (error) {
       toast({
@@ -246,25 +267,27 @@ export default function FileEditor({
         <div className="p-2 border-t flex gap-2">
           <Button
             onClick={handleSaveToMemory}
-            disabled={!!syntaxError || isSavingToGitHub}
+            disabled={!!syntaxError || isSavingToGitHub || isSavingToMemory}
             className="flex-1"
             size="sm"
             variant="outline"
           >
-            <Save className="mr-2 h-4 w-4" />
-            {syntaxError ? "Cannot Save (Fix Syntax)" : "Save to Session"}
+            {isSavingToMemory ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {isSavingToMemory ? "Saving..." : (syntaxError ? "Fix Syntax to Save" : "Save to Session")}
           </Button>
           <Button
             onClick={handleSaveToGitHub}
-            disabled={!!syntaxError || !repoUrl || !targetBranch || isSavingToGitHub}
+            disabled={!!syntaxError || !repoUrl || !targetBranch || isSavingToGitHub || isSavingToMemory}
             className="flex-1"
             size="sm"
           >
-            <Save className="mr-2 h-4 w-4" />
-            {isSavingToGitHub ? "Saving to GitHub..." : (syntaxError ? "Cannot Save (Fix Syntax)" : "Save to GitHub")}
+            {isSavingToGitHub ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {isSavingToGitHub ? "Saving to GitHub..." : (syntaxError ? "Fix Syntax to Save" : "Save to GitHub")}
           </Button>
         </div>
       </CardContent>
     </Card>
   );
 }
+
+    
