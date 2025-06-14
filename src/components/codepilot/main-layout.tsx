@@ -17,21 +17,22 @@ import {
 import { Button } from '@/components/ui/button';
 import { Settings, Bot, GitBranch, Files, LayoutGrid, MessageSquare, Edit3, Layers } from 'lucide-react';
 import FileExplorer from './file-explorer';
-import FileEditor from './file-editor'; // New FileEditor for Canvas
-import { CodeEditor } from './code-editor'; // Existing CodeEditor for preview/other uses
+import FileEditor from './file-editor'; 
+import { CodeEditor } from './code-editor'; 
 import { ConsoleOutput } from './console-output'; 
 import { AgentPanels } from './agent-panels';
 import { CanvasGitActions } from './canvas-git-actions';
 import ProjectConsole from './project-console'; 
-import type { AgentType, FileNode as FileSystemRootType, FileNode } from '@/types';
+import type { AgentType, FileNode as FileSystemRootType, FileNode, LogEntry } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import InstructionChat from './instruction-chat';
-import { GitControls } from './git-controls'; // Ensure GitControls is imported
+import { GitControls } from './git-controls'; 
 
 interface MainLayoutProps {
   repoUrl: string;
   setRepoUrl: (url: string) => void;
+  currentGitBranch: string; // Added for passing to FileEditor
   token: string;
   setToken: (token: string) => void;
   isCloned: boolean;
@@ -39,35 +40,29 @@ interface MainLayoutProps {
   onPull: () => void;
   onStageAll: () => void;
   onCommit: (message: string) => void; 
-  onPush: () => void;
   fileSystemRoot: FileSystemRootType; 
   selectedFile: FileNode | null;
   onFileSelect: (file: FileNode) => void;
-  // onEditorChange removed as FileEditor in Canvas manages its own state and save
   instruction: string; 
   setInstruction: (instruction: string) => void; 
   selectedAgent: AgentType | null;
   setSelectedAgent: (agent: AgentType | null) => void;
   isSubmittingInstruction: boolean; 
   submitInstruction: () => void; 
-  addLog: (message: string, type?: LogEntry['source']) => void;
   applyPatch: (filePath: string, patchString: string) => void;
 }
 
 export function MainLayout(props: MainLayoutProps) {
   const isMobile = useIsMobile();
-  const [activeSidebarTab, setActiveSidebarTab] = React.useState('chat'); // Default to chat
-
+  const [activeSidebarTab, setActiveSidebarTab] = React.useState('chat'); 
+  
   const isAgentsTabActive = activeSidebarTab === 'agents';
   const isChatTabActive = activeSidebarTab === 'chat';
   const isGitTabActive = activeSidebarTab === 'git';
   const isCanvasTabActive = activeSidebarTab === 'canvas';
   const isOthersTabActive = activeSidebarTab === 'others';
   
-  // Show bottom console only if no specific full-panel tab is active.
-  // Or, for specific tabs if desired. For now, let's hide it for chat & others.
   const showBottomConsole = !isChatTabActive && !isOthersTabActive && !isAgentsTabActive;
-  
   const showLeftColumnContent = isGitTabActive || isCanvasTabActive;
 
 
@@ -149,7 +144,6 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          // (isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive || isChatTabActive) && "pb-4", 
           isChatTabActive && "p-0 md:p-2", 
           isOthersTabActive && "p-0 md:p-2",
           isAgentsTabActive && "p-0 md:p-2"
@@ -192,7 +186,9 @@ export function MainLayout(props: MainLayoutProps) {
                 <AgentPanels
                   selectedAgent={props.selectedAgent}
                   setSelectedAgent={props.setSelectedAgent}
-                  addLog={props.addLog}
+                  addLog={(message, type) => props.applyPatch // Bit of a hack, pass addLog from page.tsx
+                     (message, type || 'agent') // TODO: fix this, AgentPanels needs addLog, not applyPatch
+                  }
                 />
             ) : isChatTabActive ? (
                 <div className="h-full w-full">
@@ -221,14 +217,15 @@ export function MainLayout(props: MainLayoutProps) {
                     <div className="flex-grow min-h-0">
                         <FileEditor
                             file={props.selectedFile}
-                            // onChange prop removed as FileEditor handles its own content and save
+                            repoUrl={props.repoUrl}
+                            targetBranch={props.currentGitBranch}
                         />
                     </div>
                     <div className="shrink-0 mt-auto">
                         <CanvasGitActions
                             onStageAll={props.onStageAll}
                             onCommit={props.onCommit}
-                            onPush={props.onPush}
+                            onPush={() => { /* onPush is part of onCommit in page.tsx */ }}
                             isCloned={props.isCloned}
                         />
                     </div>

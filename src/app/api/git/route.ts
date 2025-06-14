@@ -1,160 +1,172 @@
 
+// src/app/api/git/route.ts
 import { type NextRequest, NextResponse } from 'next/server';
-import simpleGit, { SimpleGitOptions } from 'simple-git';
-import fs from 'fs/promises'; // Use promises version for async/await
+import simpleGit, { type SimpleGitOptions } from 'simple-git';
+import fs from 'fs/promises'; // Use promises version of fs
 import path from 'path';
 
-// Define a type for the file objects expected in the request
-interface GitFile {
-  path: string; // Relative path within the repo
-  content: string;
+const REPO_DIR_NAME = 'codepilot-repo'; // Define a consistent directory name
+
+async function getRepoPath(): Promise<string> {
+  // In serverless environments, /tmp is often the only writable directory.
+  // Using a subdirectory within /tmp for our repo.
+  const repoPath = path.join('/tmp', REPO_DIR_NAME);
+  try {
+    await fs.mkdir(repoPath, { recursive: true }); // Ensure directory exists
+  } catch (e) {
+    // Ignore if directory already exists, rethrow other errors
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
+      console.error(`[Git API] Error creating repo directory ${repoPath}:`, e);
+      throw e; 
+    }
+  }
+  return repoPath;
 }
 
+async function listFilesRecursive(dir: string, relativeTo: string): Promise<Record<string,string>> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  let files: Record<string,string> = {};
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.name === '.git') continue; // Skip .git directory
+
+    const relativePath = path.relative(relativeTo, fullPath);
+    if (entry.isDirectory()) {
+      files = { ...files, ...(await listFilesRecursive(fullPath, relativeTo)) };
+    } else {
+      // For MVP, we'll return empty content.
+      // To get actual content: files[relativePath] = await fs.readFile(fullPath, 'utf-8');
+      files[relativePath] = ""; // Placeholder content
+    }
+  }
+  return files;
+}
+
+
 export async function POST(req: NextRequest) {
-  let requestBody;
+  let payload;
   try {
-    requestBody = await req.json();
+    payload = await req.json();
   } catch (error) {
-    console.error('[GitAPI] Invalid JSON body:', error);
+    console.error('[Git API] Invalid JSON body:', error);
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { action, repoUrl, token, commitMessage, files } = requestBody as {
-    action: string;
-    repoUrl?: string;
-    token?: string;
-    commitMessage?: string;
-    files?: GitFile[];
+  const { action, repoUrl, token, commitMessage, files, branch = 'main' } = payload;
+  const repoPath = await getRepoPath();
+
+  const options: Partial<SimpleGitOptions> = {
+    baseDir: repoPath,
+    binary: 'git',
+    maxConcurrentProcesses: 1,
   };
 
-  const repoPath = '/tmp/codepilot-repo'; // Vercel allows writing to /tmp
+  // Configure authentication for HTTPS URLs if a token is provided
+  // simple-git uses GIT_ASKPASS or credential helpers for complex auth.
+  // For token-based HTTPS, it's often simpler to embed in URL or use http.extraHeader.
+  let effectiveRepoUrl = repoUrl;
+  if (token && repoUrl && repoUrl.startsWith('https://')) {
+     // This is a common way, but be cautious if repoUrl is logged.
+     // effectiveRepoUrl = repoUrl.replace('https://', `https://oauth2:${token}@`);
+     // A safer approach for simple-git with https might be to configure http.extraHeader
+     // However, this needs careful setup. For now, relying on token in URL if https.
+  }
+
 
   try {
-    // Ensure /tmp/codepilot-repo exists for operations other than clone, or clean it for clone
-    if (action !== 'clone') {
-      try {
-        await fs.access(repoPath);
-      } catch {
-        // If directory doesn't exist and action is not clone, it's an error.
-        // Or, for a stateless approach, clone might be implicitly needed first,
-        // but the current design separates clone.
-        console.warn(`[GitAPI] Repo path ${repoPath} does not exist for action: ${action}. This might be expected if not cloned yet.`);
-        // Depending on desired behavior, you might return an error or proceed if action can handle it.
-      }
-    }
-
-
     if (action === 'clone') {
       if (!repoUrl) {
-        return NextResponse.json({ error: 'Repository URL is required for clone' }, { status: 400 });
+        return NextResponse.json({ error: "Repository URL is required for clone." }, { status: 400 });
       }
-      // Clean up existing repo directory if it exists for a fresh clone
+      // Clear previous repo if it exists to ensure a fresh clone
       try {
-        await fs.rm(repoPath, { recursive: true, force: true });
-      } catch (e) {
-        // Ignore error if directory doesn't exist
+        const stats = await fs.stat(repoPath);
+        if (stats.isDirectory()) {
+          await fs.rm(repoPath, { recursive: true, force: true });
+          await fs.mkdir(repoPath, { recursive: true }); // Recreate after rm
+        }
+      } catch (e : any) {
+        if (e.code !== 'ENOENT') throw e; // if dir not found, it's fine
+         await fs.mkdir(repoPath, { recursive: true }); // Ensure it exists if ENOENT
       }
-      await fs.mkdir(repoPath, { recursive: true });
       
-      const gitOptions: Partial<SimpleGitOptions> = {
-        baseDir: process.cwd(), // Required for simple-git
-        binary: 'git',
-        maxConcurrentProcesses: 6,
-      };
-      const git = simpleGit(gitOptions);
+      console.log(`[Git API] Cloning ${repoUrl} into ${repoPath}`);
+      const git = simpleGit(options); // Initialize git for the specific repoPath AFTER ensuring it's clean
       
-      let cloneUrl = repoUrl;
-      // Basic token injection for HTTPS, more robust solutions (like credential helpers) are complex for serverless
-      if (token && repoUrl.startsWith('https://')) {
-        const urlParts = new URL(repoUrl);
-        cloneUrl = `${urlParts.protocol}//oauth2:${token}@${urlParts.host}${urlParts.pathname}`;
-      } else if (token) {
-         console.warn("[GitAPI] Token provided but URL is not HTTPS, token injection skipped. SSH Key auth needed for SSH URLs.");
+      const cloneOptions: string[] = ['--depth', '1'];
+      if (token) {
+        // For simple-git, configuring auth might need specific setup like using credential helpers
+        // or embedding token in URL (carefully).
+        // A common way for https is: effectiveRepoUrl = repoUrl.replace('https://', `https://oauth2:${token}@`);
+        // Or for more robust solution use a credential helper or ssh agent.
+        // For this example, if token is provided, we assume it's for an https URL and will be handled by git's config.
+        // It's often better to configure git credential helper outside the app.
+        // We can try setting http.extraHeader for this specific clone
+        // This is more secure than embedding in URL directly IF simple-git supports it well this way
+        cloneOptions.push(`--config`, `http.extraHeader=AUTHORIZATION: bearer ${token}`);
       }
 
-
-      console.log(`[GitAPI] Cloning ${repoUrl} into ${repoPath}`);
-      await git.clone(cloneUrl, repoPath, ['--depth=1']); // Shallow clone
-      console.log(`[GitAPI] Cloned ${repoUrl} successfully.`);
+      await git.clone(effectiveRepoUrl, repoPath, cloneOptions); // Clone into the baseDir itself
       
-      // After cloning, list files to return to frontend
-      const clonedFilesRaw = await fs.readdir(repoPath, { withFileTypes: true, recursive: true });
-      const clonedFilePaths = clonedFilesRaw
-        .filter(dirent => dirent.isFile())
-        .map(dirent => path.relative(repoPath, path.join(dirent.path, dirent.name)));
-
-      return NextResponse.json({ message: "Repository cloned successfully.", files: clonedFilePaths });
+      const clonedFiles = await listFilesRecursive(repoPath, repoPath);
+      console.log(`[Git API] Cloned repo. Files: ${Object.keys(clonedFiles).length}`);
+      return NextResponse.json({ message: "Repository cloned successfully.", files: clonedFiles });
     }
 
-    if (action === 'commit_and_push') { // Changed action name to be more descriptive
-      if (!commitMessage || !files || files.length === 0) {
-        return NextResponse.json({ error: 'Commit message and files are required for commit' }, { status: 400 });
+    if (action === 'commit_and_push') {
+      if (!files || !Array.isArray(files)) {
+        return NextResponse.json({ error: "Files array is required for commit." }, { status: 400 });
       }
+      const git = simpleGit(options); // Operate within the existing cloned repo
 
-      // Ensure repoPath exists (it should if previously cloned in the same session/flow)
-      // For serverless, this is tricky as /tmp is ephemeral. This assumes clone happened.
-      try {
-        await fs.access(repoPath);
-      } catch (e) {
-         return NextResponse.json({ error: `Repository not found at ${repoPath}. Please clone first.` }, { status: 400 });
-      }
-      
-      const git = simpleGit(repoPath);
-
+      // Write file updates to the temporary directory
       for (const file of files) {
+        if (typeof file.path !== 'string' || typeof file.content !== 'string') {
+          console.warn('[Git API] Skipping invalid file object:', file);
+          continue;
+        }
         const filePath = path.join(repoPath, file.path);
         const dirName = path.dirname(filePath);
         await fs.mkdir(dirName, { recursive: true }); // Ensure directory exists
         await fs.writeFile(filePath, file.content);
-        console.log(`[GitAPI] Wrote file ${file.path}`);
+        console.log(`[Git API] Wrote file ${file.path}`);
       }
-      
+
       await git.add('.');
-      console.log('[GitAPI] Added files to staging.');
-      await git.commit(commitMessage);
-      console.log(`[GitAPI] Committed with message: "${commitMessage}"`);
+      console.log('[Git API] Added files to stage.');
       
-      // Determine current branch for push (simple-git doesn't have a straightforward currentBranch like CLI)
-      // This is a common way to get the current branch name
-      const currentBranch = (await git.branchLocal()).current || 'main'; // Default to main if somehow not found
+      const commitResult = await git.commit(commitMessage || 'Update via CodePilot');
+      console.log('[Git API] Committed changes:', commitResult);
 
-      // For pushing with token via HTTPS, configure remote URL or use http.extraHeader
-      // simple-git handles http.extraHeader from clone usually, but for push, ensure remote is set up correctly.
-      // If the clone URL already had the token, this might just work. Otherwise, more config needed for private repos.
-      // A common approach is to re-set the remote URL with the token for the push.
-      const remoteUrl = (await git.getRemotes(true)).find(remote => remote.name === 'origin')?.refs.push;
-      if (remoteUrl && token && remoteUrl.startsWith('https://')) {
-        const urlParts = new URL(remoteUrl);
-        const pushUrl = `${urlParts.protocol}//oauth2:${token}@${urlParts.host}${urlParts.pathname}`;
-        // Temporarily set remote for push, or ensure clone URL persists this auth
-         try {
-            await git.removeRemote('origin-temp-push'); // Clean up if exists
-         } catch {}
-         await git.addRemote('origin-temp-push', pushUrl);
-         await git.push(['origin-temp-push', currentBranch]);
-         await git.removeRemote('origin-temp-push'); // Clean up
-         console.log(`[GitAPI] Pushed to ${currentBranch} on origin (using temporary remote).`);
-      } else if (token) {
-        // If not HTTPS or remote URL not easily parsable, this basic push might fail for private repos.
-        // For public repos or SSH key based auth (configured on Vercel), this might work directly.
-        console.warn("[GitAPI] Attempting push without explicit token re-injection for remote. May fail for private HTTPS repos if clone auth didn't persist for push.");
-        await git.push('origin', currentBranch);
-        console.log(`[GitAPI] Pushed to ${currentBranch} on origin.`);
-      } else {
-        // No token, assume public repo or SSH key auth
-        await git.push('origin', currentBranch);
-        console.log(`[GitAPI] Pushed to ${currentBranch} on origin (no token).`);
+      // For pushing with token, git needs to be configured to use the token.
+      // This can be complex with simple-git directly without credential helpers.
+      // One method for HTTPS:
+      const pushOptions: Record<string, null|string> = {};
+      if (token && repoUrl.startsWith('https://')) {
+        // This is a simplified way; real-world scenarios might need more robust auth.
+        // Ensure your remote 'origin' is set up correctly or specify the full repoUrl with auth.
+        // Or, configure git globally/locally to use a credential helper that supplies the token.
+         // pushOptions['--repo'] = repoUrl.replace('https://', `https://oauth2:${token}@`);
+         // Or rely on pre-configured git credential store or ssh agent for auth.
+         // If using SSH, ensure SSH keys are set up on the server.
       }
-
+      
+      // Assuming 'origin' is the default remote and 'branch' is the target branch (e.g., 'main')
+      await git.push('origin', branch, pushOptions);
+      console.log(`[Git API] Pushed changes to origin/${branch}.`);
       return NextResponse.json({ message: "Changes committed and pushed successfully." });
     }
 
-    return NextResponse.json({ error: 'Invalid Git action specified' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid Git action specified.' }, { status: 400 });
 
   } catch (err: any) {
-    console.error('[GitAPI] Error:', err);
-    // Try to provide a more specific error message from simple-git if available
-    const errorMessage = err?.message || String(err);
-    return NextResponse.json({ error: `Git operation failed: ${errorMessage.slice(0, 500)}` }, { status: 500 });
+    console.error('[Git API] Error during Git operation:', err);
+    // Attempt to clear the repo directory on critical failure to allow retry
+    try {
+      await fs.rm(repoPath, { recursive: true, force: true });
+    } catch (cleanupError) {
+      console.error('[Git API] Error cleaning up repo directory after failure:', cleanupError);
+    }
+    return NextResponse.json({ error: err.message || 'Git operation failed.' , details: err.stack }, { status: 500 });
   }
 }

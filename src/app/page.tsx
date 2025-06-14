@@ -6,29 +6,30 @@ import { MainLayout } from '@/components/codepilot/main-layout';
 import type { AgentType, FileNode } from '@/types';
 import { useToast } from "@/hooks/use-toast";
 import { useFileSystem } from '@/context/FileSystemContext';
-import { useLogs } from '@/context/LogContext';
+import { useLogs, type LogEntry } from '@/context/LogContext';
 import { usePatchApply } from '@/hooks/use-patch-apply';
 
 export default function CodePilotPage() {
   const { toast } = useToast();
   const { root: fileSystemRoot, getFile, updateFile, initializeFileSystem } = useFileSystem();
-  const { addLog: addLogEntry } = useLogs(); // logs state is now managed by LogContext directly in components
+  const { addLog: addLogEntry } = useLogs(); 
   const { applyDirectPatch, applyDiffPatch } = usePatchApply();
 
   const [repoUrl, setRepoUrl] = useState<string>('');
+  const [currentGitBranch, setCurrentGitBranch] = useState<string>('main'); // Added for "Save to GitHub"
   const [token, setToken] = useState<string>('');
   const [isCloned, setIsCloned] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const [instruction, setInstruction] = useState<string>(''); // Kept for potential non-chat instruction input
-  const [selectedAgent, setSelectedAgent] = useState<AgentType | null>('developer'); // For AgentPanels
-  const [isSubmittingInstruction, setIsSubmittingInstruction] = useState<boolean>(false); // For AgentPanels
+  const [instruction, setInstruction] = useState<string>(''); 
+  const [selectedAgent, setSelectedAgent] = useState<AgentType | null>('developer'); 
+  const [isSubmittingInstruction, setIsSubmittingInstruction] = useState<boolean>(false);
 
-  const addLog = useCallback((message: string, type: LogEntry['source'] = 'info') => {
-    addLogEntry({ message, source: type });
-    if (type === 'error') {
+  const addLog = useCallback((logEntry: Omit<LogEntry, 'id' | 'timestamp'>) => {
+    addLogEntry(logEntry);
+    if (logEntry.source === 'error') {
       toast({
         title: "Error",
-        description: message,
+        description: logEntry.message,
         variant: "destructive",
       });
     }
@@ -36,10 +37,10 @@ export default function CodePilotPage() {
 
   const handleClone = async () => {
     if (!repoUrl) {
-      addLog("Repository URL cannot be empty.", 'error');
+      addLog({ message: "Repository URL cannot be empty.", source: 'error' });
       return;
     }
-    addLog(`Cloning repository: ${repoUrl}...`, 'git');
+    addLog({ message: `Cloning repository: ${repoUrl}...`, source: 'git' });
     try {
       const response = await fetch('/api/git', {
         method: 'POST',
@@ -51,74 +52,69 @@ export default function CodePilotPage() {
         throw new Error(data.error || `Clone failed with status ${response.status}`);
       }
       
-      if (data.files && Array.isArray(data.files) && data.files.length > 0) {
-        const filesToInitialize = data.files.reduce((acc: Record<string, string>, filePath: string) => {
-          acc[filePath] = ""; // Initialize with empty content, or fetch if backend provides it
-          return acc;
-        }, {});
-        initializeFileSystem(filesToInitialize);
-        addLog(data.message || `Repository cloned. ${data.files.length} files listed. File content will be fetched on demand or is empty.`, 'success');
+      if (data.files && typeof data.files === 'object' && Object.keys(data.files).length > 0) {
+        initializeFileSystem(data.files);
+        addLog({ message: data.message || `Repository cloned. ${Object.keys(data.files).length} files listed.`, source: 'success'});
       } else if (data.message) {
-         initializeFileSystem({}); // Initialize with empty if no files are explicitly returned
-         addLog(data.message, 'success');
+         initializeFileSystem({}); 
+         addLog({ message: data.message, source: 'success'});
       } else {
         initializeFileSystem({});
-        addLog('Repository cloned, but no file data received to populate file system.', 'success');
+        addLog({ message: 'Repository cloned, but no file data received to populate file system.', source: 'success'});
       }
 
       setIsCloned(true);
-      setSelectedFile(null); // Reset selected file
+      setSelectedFile(null); 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      addLog(`Error cloning repository: ${errorMsg}`, 'error');
+      addLog({ message: `Error cloning repository: ${errorMsg}`, source: 'error' });
       setIsCloned(false);
     }
   };
 
   const handlePull = async () => {
     if (!isCloned) {
-      addLog("No repository cloned to pull from.", 'error');
+      addLog({ message: "No repository cloned to pull from.", source: 'error' });
       return;
     }
-    addLog('Pulling latest changes from remote... (Mocked - no actual pull yet)', 'git');
+    addLog({ message: 'Pulling latest changes from remote... (Mocked - no actual pull yet)', source: 'git' });
     // TODO: Implement actual pull logic via /api/git.
     // This would involve fetching changes and updating FileSystemContext.
     // For now, it's a placeholder.
     setTimeout(() => {
-      addLog('Mock pull complete. File system not updated.', 'info');
+      addLog({ message: 'Mock pull complete. File system not updated.', source: 'info' });
     }, 1000);
   };
 
-  const handleStageAll = () => addLog('Staging all changes... (Mocked - no actual staging yet)', 'info');
+  const handleStageAll = () => addLog({ message: 'Staging all changes... (Mocked - no actual staging yet)', source: 'info'});
   
   const handleCommitAndPush = async (commitMessage: string) => {
     if (!isCloned) {
-      addLog("No repository cloned to commit/push to.", 'error');
+      addLog({ message: "No repository cloned to commit/push to.", source: 'error' });
       return;
     }
     if (!commitMessage.trim()) {
-        addLog("Commit message cannot be empty.", 'error');
+        addLog({ message: "Commit message cannot be empty.", source: 'error' });
         return;
     }
-    addLog(`Committing with message: "${commitMessage}" and pushing...`, 'git');
+    addLog({ message: `Committing with message: "${commitMessage}" and pushing...`, source: 'git' });
 
     const filesToCommit: { path: string, content: string }[] = [];
-    function collectFiles(node: FileNode, currentPath: string) {
+    function collectFiles(node: FileNode, currentPath: string) { // currentPath is not used, node.path is absolute
         if (node.type === 'file') {
-            // Ensure path is relative to repo root (remove leading '/')
             const relativePath = node.path.startsWith('/') ? node.path.substring(1) : node.path;
             filesToCommit.push({ path: relativePath, content: node.content || '' });
         } else if (node.children) {
-            node.children.forEach(child => collectFiles(child, (currentPath === "/" ? "" : currentPath) + "/" + child.name));
+            node.children.forEach(child => collectFiles(child, child.path)); // Pass child.path
         }
     }
-    if (fileSystemRoot.children) { // Start collecting from children of the root
-        fileSystemRoot.children.forEach(child => collectFiles(child, "/"));
+
+    if (fileSystemRoot.children) { 
+        fileSystemRoot.children.forEach(child => collectFiles(child, child.path));
     }
     
     if (filesToCommit.length === 0) {
-        addLog("No files found in the workspace to commit. Ensure files are saved.", "info");
-        // return; // Or allow empty commit if backend/git supports it
+        addLog({ message: "No files found in the workspace to commit. Ensure files are saved.", source: "info"});
     }
 
     try {
@@ -129,57 +125,46 @@ export default function CodePilotPage() {
                 action: 'commit_and_push', 
                 commitMessage, 
                 files: filesToCommit,
-                token 
+                token,
+                branch: currentGitBranch, // Send current branch for push
             }),
         });
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error || `Commit & Push failed with status ${response.status}`);
         }
-        addLog(data.message || 'Changes committed and pushed successfully.', 'success');
+        addLog({ message: data.message || 'Changes committed and pushed successfully.', source: 'success'});
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        addLog(`Error committing/pushing: ${errorMsg}`, 'error');
+        addLog({ message: `Error committing/pushing: ${errorMsg}`, source: 'error'});
     }
   };
 
   const handleFileSelect = useCallback((file: FileNode) => {
-    setSelectedFile(file);
+    setSelectedFile(file); // file is now a FileNode object
     if (file.type === 'file') {
-        addLog(`Selected file: ${file.path}`, 'info');
+        addLog({ message: `Selected file: ${file.path}`, source: 'info' });
     } else {
-        addLog(`Selected folder: ${file.path}`, 'info');
+        addLog({ message: `Selected folder: ${file.path}`, source: 'info' });
     }
   }, [addLog]);
-
-  // This handler is no longer needed for the primary FileEditor in Canvas,
-  // as it manages its own state and saves directly.
-  // It might be kept if other CodeEditor instances need it.
-  // const handleEditorContentChange = useCallback((newContent: string) => {
-  //   if (selectedFile && selectedFile.type === 'file') {
-  //     updateFile(selectedFile.path, newContent);
-  //     setSelectedFile(prev => prev ? { ...prev, content: newContent } : null);
-  //   }
-  // }, [selectedFile, updateFile]);
   
 
   const handleSubmitInstructionToAgentPanel = () => {
     if (!selectedAgent) {
-      addLog("Please select an agent first (from Agent Panels).", "error");
+      addLog({ message: "Please select an agent first (from Agent Panels).", source: "error"});
       return;
     }
     if (!instruction.trim()) {
-      addLog("Instruction for Agent Panel cannot be empty.", "error");
+      addLog({ message: "Instruction for Agent Panel cannot be empty.", source: "error"});
       return;
     }
-    addLog(`Instruction submitted to ${selectedAgent} agent (from Agent Panel): "${instruction}"`, 'agent');
+    addLog({ message: `Instruction submitted to ${selectedAgent} agent (from Agent Panel): "${instruction}"`, source: 'agent'});
     setIsSubmittingInstruction(true);
-    // This is a mock submission for the AgentPanels.
-    // Real submission logic is in InstructionChat for the chat tab.
     setTimeout(() => {
-        addLog(`Mock response from ${selectedAgent} agent for: "${instruction}"`, 'agent');
+        addLog({ message: `Mock response from ${selectedAgent} agent for: "${instruction}"`, source: 'agent'});
         setIsSubmittingInstruction(false);
-        setInstruction(""); // Clear instruction after mock submission
+        setInstruction(""); 
     }, 1500);
   };
 
@@ -187,26 +172,25 @@ export default function CodePilotPage() {
     <MainLayout
       repoUrl={repoUrl}
       setRepoUrl={setRepoUrl}
-      token={token}
+      currentGitBranch={currentGitBranch} // Pass currentGitBranch
       setToken={setToken}
+      token={token}
       isCloned={isCloned}
       onClone={handleClone}
       onPull={handlePull} 
       onStageAll={handleStageAll}
       onCommit={handleCommitAndPush}
-      onPush={() => { /* onPush is part of handleCommitAndPush */ }}
+      // onPush is part of handleCommitAndPush
       fileSystemRoot={fileSystemRoot}
       selectedFile={selectedFile}
       onFileSelect={handleFileSelect}
-      // onEditorChange is removed as FileEditor in Canvas handles its own state
-      instruction={instruction} // For AgentPanels
-      setInstruction={setInstruction} // For AgentPanels
-      selectedAgent={selectedAgent} // For AgentPanels
-      setSelectedAgent={setSelectedAgent} // For AgentPanels
-      isSubmittingInstruction={isSubmittingInstruction} // For AgentPanels
-      submitInstruction={handleSubmitInstructionToAgentPanel} // For AgentPanels
-      addLog={addLog} // For general logging from MainLayout if needed
-      applyPatch={applyDiffPatch} // Pass one of the patch apply functions
+      instruction={instruction} 
+      setInstruction={setInstruction} 
+      selectedAgent={selectedAgent} 
+      setSelectedAgent={setSelectedAgent} 
+      isSubmittingInstruction={isSubmittingInstruction} 
+      submitInstruction={handleSubmitInstructionToAgentPanel} 
+      applyPatch={applyDiffPatch} 
     />
   );
 }
