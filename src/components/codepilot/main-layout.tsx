@@ -84,7 +84,7 @@ export function MainLayout(props: MainLayoutProps) {
             <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Agents" 
-                isActive={isAgentsTabActive}
+                isActive={isAgentsTabActive || activeSidebarTab === 'agents'} // Keep "Agents" highlighted if interacting with agent panels
                 onClick={() => setActiveSidebarTab('agents')}
               >
                 <Bot /> <span>Agents</span>
@@ -139,7 +139,7 @@ export function MainLayout(props: MainLayoutProps) {
         <div className="flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto">
           {/* Left Column (Sidebar Content) or Main Content on Mobile */}
           <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
-            {(activeSidebarTab === 'agents' || activeSidebarTab === 'chat') && (
+            {activeSidebarTab === 'agents' && ( // Show InstructionInput only for 'agents' tab
               <InstructionInput
                 instruction={props.instruction}
                 setInstruction={props.setInstruction}
@@ -170,9 +170,10 @@ export function MainLayout(props: MainLayoutProps) {
                 />
               </Card>
             )}
+            {/* If chat tab is active, this column might be empty or show other chat-specific controls in the future */}
           </div>
 
-          {/* Center Column (Agent Panels / Code Editor) */}
+          {/* Center Column (Agent Panels / Code Editor / Chat Interface) */}
           <div className="md:col-span-2 flex flex-col gap-4 h-full overflow-y-auto">
             {activeSidebarTab === 'agents' ? (
                 <AgentPanels
@@ -193,15 +194,12 @@ export function MainLayout(props: MainLayoutProps) {
                     </CardHeader>
                     <CardContent>
                         <p className="text-muted-foreground text-center">
-                            Use the instruction input to interact with the selected agent.
-                        </p>
-                         <p className="text-sm text-muted-foreground text-center mt-2">
-                            Select an agent (Developer or QA) using the tabs above the instruction input.
+                            This is the dedicated chat area.
                         </p>
                     </CardContent>
                 </Card>
             ) : ( // This covers 'git' and 'files' tabs for the center panel
-                 <div className="h-[calc(100%-0px)] md:h-full"> {/* Adjust height - was calc(100%-180px), now aims for full height when not agents/chat */}
+                 <div className="h-full">
                     <CodeEditor
                     filePath={props.selectedFilePath}
                     content={props.currentFileContent}
@@ -212,10 +210,12 @@ export function MainLayout(props: MainLayoutProps) {
           </div>
         </div>
         
-        {/* Bottom section for Console - fixed height */}
-        <div className="h-[200px] md:h-[250px] p-4 pt-0">
-             <ConsoleOutput logs={props.logs} />
-        </div>
+        {/* Bottom section for Console - conditionally rendered */}
+        {activeSidebarTab !== 'chat' && (
+          <div className="h-[200px] md:h-[250px] p-4 pt-0">
+            <ConsoleOutput logs={props.logs} />
+          </div>
+        )}
       </SidebarInset>
     </SidebarProvider>
   );
