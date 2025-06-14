@@ -33,11 +33,11 @@ export function CodeEditor({ filePath, content, setContent, readOnly = false, ti
       </CardHeader>
       <CardContent className="p-0 flex-grow">
         <ScrollArea className="h-full w-full">
-          {filePath || title === "Project Structure" ? ( // Allow showing editor even if no file selected, if title is Project Structure
+          {filePath || title === "Project Structure" || title === "Canvas" ? ( 
             <Textarea
               value={content}
               onChange={handleContentChange}
-              readOnly={readOnly || title === "Project Structure"} // Make readOnly if it's project structure view (no file selected for editing)
+              readOnly={readOnly || title === "Project Structure"} 
               placeholder={readOnly ? "No file selected or file is empty." : "Start coding..."}
               className="font-code h-full w-full resize-none border-0 rounded-none focus-visible:ring-0 p-4 text-sm bg-background text-foreground"
               aria-label={filePath ? `Code editor for ${filePath}` : 'Code editor'}

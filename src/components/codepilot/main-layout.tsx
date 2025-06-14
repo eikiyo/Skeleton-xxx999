@@ -73,8 +73,11 @@ export function MainLayout(props: MainLayoutProps) {
   const isCanvasTabActive = activeSidebarTab === 'canvas';
   const isOthersTabActive = activeSidebarTab === 'others';
 
-  const showConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive && !isOthersTabActive;
-  const showLeftColumnContent = !isChatTabActive && !isAgentsTabActive && !isOthersTabActive;
+  // Determine if the console output at the very bottom should be shown
+  const showBottomConsole = !isChatTabActive && !isAgentsTabActive && !isGitTabActive && !isCanvasTabActive && !isOthersTabActive;
+  
+  // Determine if the left-hand content column should be shown
+  const showLeftColumnContent = !isChatTabActive && !isAgentsTabActive && !isOthersTabActive && !isCanvasTabActive;
 
 
   return (
@@ -161,7 +164,6 @@ export function MainLayout(props: MainLayoutProps) {
           {showLeftColumnContent && (
             <div className={cn(
               "md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto",
-               // This condition will hide the left column for Chat, Agents, and Others tabs.
             )}>
               {isGitTabActive && (
                 <GitControls
@@ -173,22 +175,14 @@ export function MainLayout(props: MainLayoutProps) {
                   isCloned={props.isCloned}
                 />
               )}
-              {(isGitTabActive || isCanvasTabActive) && (
-                <Card className="h-full shadow-sm flex-grow">
-                  <FileExplorer
-                    files={props.files}
-                    selectedFilePath={props.selectedFilePath}
-                    onFileSelect={props.onFileSelect}
-                  />
-                </Card>
-              )}
+              {/* FileExplorer is removed from GitControls tab view */}
             </div>
           )}
 
           {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas / Others) */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
-            (!showLeftColumnContent || isChatTabActive || isAgentsTabActive || isOthersTabActive) ? "md:col-span-3" : "md:col-span-2"
+            (!showLeftColumnContent || isChatTabActive || isAgentsTabActive || isOthersTabActive || isCanvasTabActive) ? "md:col-span-3" : "md:col-span-2"
           )}>
             {isAgentsTabActive ? (
                 <AgentPanels
@@ -231,6 +225,13 @@ export function MainLayout(props: MainLayoutProps) {
                         />
                     </div>
                     <div className="shrink-0 mt-4">
+                         <FileExplorer
+                            files={props.files}
+                            selectedFilePath={props.selectedFilePath}
+                            onFileSelect={props.onFileSelect}
+                          />
+                    </div>
+                    <div className="shrink-0 mt-4">
                         <CanvasGitActions
                             onStageAll={props.onStageAll}
                             onCommit={props.onCommit}
@@ -263,14 +264,15 @@ export function MainLayout(props: MainLayoutProps) {
                       filePath={props.selectedFilePath}
                       content={props.currentFileContent}
                       setContent={props.setFileContent}
-                      title={isGitTabActive ? "Project Structure" : undefined}
+                      title="Project Structure"
+                      readOnly={true} // Make project structure view read-only
                     />
                 </div>
             )}
           </div>
         </div>
         
-        {showConsole && (
+        {showBottomConsole && (
           <div className="h-[200px] md:h-[250px] p-4 pt-0">
             <ConsoleOutput logs={props.logs} />
           </div>
