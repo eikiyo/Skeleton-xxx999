@@ -1,3 +1,4 @@
+
 // src/ai/flows/generate-code-snippet.ts
 'use server';
 
@@ -36,14 +37,20 @@ const prompt = ai.definePrompt({
   name: 'generateCodeSnippetPrompt',
   input: {schema: GenerateCodeSnippetInputSchema},
   output: {schema: GenerateCodeSnippetOutputSchema},
-  prompt: `You are a code generation expert.  You generate code snippets and file templates based on high-level feature requests.  The user will specify the programming language and optionally a framework.
+  prompt: `You are a code generation expert. Your primary goal is to generate code snippets and file templates based on high-level feature requests.
+  Adhere to the following guidelines:
+  1.  **Compliance with Coding Standards**: Ensure the generated code follows best practices and common coding standards for the specified language and framework.
+  2.  **Repository Context**: If existing code context is provided, make sure the new code integrates well and is consistent with it.
+  3.  **Security Policies**: Generate secure code. Avoid common vulnerabilities (e.g., XSS, SQL injection). Do not include secrets or API keys in the code.
+  4.  **Clarity and Maintainability**: Produce code that is clear, well-commented where necessary (but avoid excessive comments), and maintainable.
 
+  User's Request Details:
   Feature Request: {{{featureRequest}}}
   Programming Language: {{{programmingLanguage}}}
   Framework: {{#if framework}}{{{framework}}}{{else}}None{{/if}}
   Existing Code Context: {{#if existingCodeContext}}{{{existingCodeContext}}}{{else}}None{{/if}}
 
-  Generate a code snippet or file template that implements the feature request.  Also, provide a brief explanation of the code.
+  Generate a code snippet or file template that implements the feature request according to all the guidelines above. Also, provide a brief explanation of the generated code.
   `,
 });
 
@@ -58,3 +65,4 @@ const generateCodeSnippetFlow = ai.defineFlow(
     return output!;
   }
 );
+
