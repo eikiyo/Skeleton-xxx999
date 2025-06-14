@@ -11,12 +11,12 @@ import { usePatchApply } from '@/hooks/use-patch-apply';
 
 export default function CodePilotPage() {
   const { toast } = useToast();
-  const { root: fileSystemRoot, getFile, updateFile, initializeFileSystem } = useFileSystem();
+  const { root: fileSystemRoot, getFile, updateFile: updateFileInContext, initializeFileSystem } = useFileSystem();
   const { addLog: addLogEntry } = useLogs(); 
   const { applyDirectPatch, applyDiffPatch } = usePatchApply();
 
   const [repoUrl, setRepoUrl] = useState<string>('');
-  const [currentGitBranch, setCurrentGitBranch] = useState<string>('main'); // Added for "Save to GitHub"
+  const [currentGitBranch, setCurrentGitBranch] = useState<string>('main');
   const [token, setToken] = useState<string>('');
   const [isCloned, setIsCloned] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
@@ -42,29 +42,27 @@ export default function CodePilotPage() {
     }
     addLog({ message: `Cloning repository: ${repoUrl}...`, source: 'git' });
     try {
-      const response = await fetch('/api/git', {
+      const response = await fetch('/api/git', { // This still uses /api/git for clone
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'clone', repoUrl, token }),
+        body: JSON.stringify({ action: 'clone', repoUrl, token, branch: currentGitBranch }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || `Clone failed with status ${response.status}`);
       }
       
-      if (data.files && typeof data.files === 'object' && Object.keys(data.files).length > 0) {
+      if (data.files && typeof data.files === 'object') {
         initializeFileSystem(data.files);
         addLog({ message: data.message || `Repository cloned. ${Object.keys(data.files).length} files listed.`, source: 'success'});
-      } else if (data.message) {
-         initializeFileSystem({}); 
-         addLog({ message: data.message, source: 'success'});
+        setIsCloned(true);
+        setSelectedFile(null); 
       } else {
-        initializeFileSystem({});
-        addLog({ message: 'Repository cloned, but no file data received to populate file system.', source: 'success'});
+         initializeFileSystem({}); 
+         addLog({ message: data.message || 'Clone successful but no files listed.', source: 'success'});
+         setIsCloned(true);
+         setSelectedFile(null);
       }
-
-      setIsCloned(true);
-      setSelectedFile(null); 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       addLog({ message: `Error cloning repository: ${errorMsg}`, source: 'error' });
@@ -77,16 +75,36 @@ export default function CodePilotPage() {
       addLog({ message: "No repository cloned to pull from.", source: 'error' });
       return;
     }
-    addLog({ message: 'Pulling latest changes from remote... (Mocked - no actual pull yet)', source: 'git' });
-    // TODO: Implement actual pull logic via /api/git.
-    // This would involve fetching changes and updating FileSystemContext.
-    // For now, it's a placeholder.
-    setTimeout(() => {
-      addLog({ message: 'Mock pull complete. File system not updated.', source: 'info' });
-    }, 1000);
+    addLog({ message: 'Pulling latest changes from remote... (Attempting real pull)', source: 'git' });
+    try {
+       const response = await fetch('/api/git', { // This could use /api/git for pull if implemented there
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pull', repoUrl, token, branch: currentGitBranch }), 
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || `Pull failed with status ${response.status}`);
+      }
+      if (data.files && typeof data.files === 'object') {
+        initializeFileSystem(data.files); // Re-initialize FS with pulled files
+        addLog({ message: `Pull successful. ${Object.keys(data.files).length} files updated.`, source: 'success'});
+      } else {
+        addLog({ message: data.message || 'Pull successful, no file data to update workspace.', source: 'success'});
+      }
+       setSelectedFile(null);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      addLog({ message: `Error pulling repository: ${errorMsg}`, source: 'error'});
+    }
   };
 
-  const handleStageAll = () => addLog({ message: 'Staging all changes... (Mocked - no actual staging yet)', source: 'info'});
+  const handleStageAll = () => {
+    // Staging is now implicit if using /api/git/save-file for each modified file
+    // Or if /api/git commit_and_push is used, it stages everything.
+    // For now, this can be a no-op or log an informational message.
+    addLog({ message: 'Staging all changes (conceptually, all modified files will be part of the next "Commit & Push" if saved individually).', source: 'info'});
+  }
   
   const handleCommitAndPush = async (commitMessage: string) => {
     if (!isCloned) {
@@ -94,54 +112,109 @@ export default function CodePilotPage() {
       return;
     }
     if (!commitMessage.trim()) {
-        addLog({ message: "Commit message cannot be empty.", source: 'error' });
-        return;
+      addLog({ message: "Commit message cannot be empty.", source: 'error' });
+      return;
     }
-    addLog({ message: `Committing with message: "${commitMessage}" and pushing...`, source: 'git' });
-
-    const filesToCommit: { path: string, content: string }[] = [];
-    function collectFiles(node: FileNode, currentPath: string) { // currentPath is not used, node.path is absolute
-        if (node.type === 'file') {
-            const relativePath = node.path.startsWith('/') ? node.path.substring(1) : node.path;
-            filesToCommit.push({ path: relativePath, content: node.content || '' });
-        } else if (node.children) {
-            node.children.forEach(child => collectFiles(child, child.path)); // Pass child.path
-        }
+    if (!repoUrl) {
+      addLog({ message: "Repository URL is not set. Cannot determine owner/repo.", source: 'error' });
+      return;
     }
 
-    if (fileSystemRoot.children) { 
-        fileSystemRoot.children.forEach(child => collectFiles(child, child.path));
-    }
-    
-    if (filesToCommit.length === 0) {
-        addLog({ message: "No files found in the workspace to commit. Ensure files are saved.", source: "info"});
-    }
+    addLog({ message: `Preparing to save files to GitHub with base message: "${commitMessage}"...`, source: 'git' });
 
+    let owner, repoName;
     try {
-        const response = await fetch('/api/git', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                action: 'commit_and_push', 
-                commitMessage, 
-                files: filesToCommit,
-                token,
-                branch: currentGitBranch, // Send current branch for push
-            }),
+      const url = new URL(repoUrl.replace(/\.git$/, ''));
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      if (pathParts.length >= 2) {
+        owner = pathParts[pathParts.length - 2];
+        repoName = pathParts[pathParts.length - 1];
+      } else {
+        const sshMatch = repoUrl.match(/[:/]([\w-]+)\/([\w-]+)(\.git)?$/);
+        if (sshMatch && sshMatch.length >= 3) {
+          owner = sshMatch[1];
+          repoName = sshMatch[2];
+        } else {
+          throw new Error("Could not parse owner/repo from URL.");
+        }
+      }
+    } catch (e) {
+      addLog({ message: `Invalid Repository URL for saving files: ${e instanceof Error ? e.message : String(e)}`, source: 'error' });
+      return;
+    }
+
+    if (!owner || !repoName) {
+      addLog({ message: "Could not parse owner and repository name from the URL for saving files.", source: 'error' });
+      return;
+    }
+
+    const filesToSave: { path: string, content: string }[] = [];
+    function collectFiles(node: FileNode) {
+      if (node.type === 'file' && node.content !== undefined) { // Only include files with content
+        const relativePath = node.path.startsWith('/') ? node.path.substring(1) : node.path;
+        if (relativePath && !relativePath.startsWith('/')) { // Ensure it's a relative path within the repo
+           filesToSave.push({ path: relativePath, content: node.content });
+        }
+      } else if (node.type === 'folder' && node.children) {
+        node.children.forEach(collectFiles);
+      }
+    }
+
+    if (fileSystemRoot.children) {
+      fileSystemRoot.children.forEach(collectFiles);
+    }
+
+    if (filesToSave.length === 0) {
+      addLog({ message: "No files with content found in the workspace to save.", source: 'info' });
+      return;
+    }
+
+    addLog({ message: `Found ${filesToSave.length} file(s) to save to GitHub.`, source: 'git' });
+
+    let allSuccessful = true;
+    for (const file of filesToSave) {
+      addLog({ message: `Saving ${file.path} to GitHub...`, source: 'git' });
+      try {
+        // SHA is not sent; this creates/updates the file. GitHub API handles this.
+        // Each save will be its own commit.
+        const response = await fetch('/api/git/save-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            owner,
+            repo: repoName,
+            path: file.path,
+            content: file.content,
+            message: `${commitMessage} (file: ${file.path})`, // Individual commit message
+            branch: currentGitBranch,
+            // token is handled by the backend API route via GITHUB_TOKEN env var
+          }),
         });
+
         const data = await response.json();
         if (!response.ok) {
-            throw new Error(data.error || `Commit & Push failed with status ${response.status}`);
+          allSuccessful = false;
+          addLog({ message: `Failed to save ${file.path}: ${data.error || `Status ${response.status}`}`, source: 'error' });
+        } else {
+          addLog({ message: `Successfully saved ${file.path} to GitHub. Commit: ${data.commit?.sha?.substring(0,7) || 'N/A'}`, source: 'success' });
         }
-        addLog({ message: data.message || 'Changes committed and pushed successfully.', source: 'success'});
-    } catch (error) {
+      } catch (error) {
+        allSuccessful = false;
         const errorMsg = error instanceof Error ? error.message : String(error);
-        addLog({ message: `Error committing/pushing: ${errorMsg}`, source: 'error'});
+        addLog({ message: `Error saving ${file.path}: ${errorMsg}`, source: 'error' });
+      }
+    }
+
+    if (allSuccessful) {
+      addLog({ message: 'All specified files successfully saved to GitHub.', source: 'success' });
+    } else {
+      addLog({ message: 'Some files failed to save to GitHub. Check logs for details.', source: 'error' });
     }
   };
 
+
   const handleFileSelect = useCallback((file: FileNode) => {
-    setSelectedFile(file); // file is now a FileNode object
+    setSelectedFile(file);
     if (file.type === 'file') {
         addLog({ message: `Selected file: ${file.path}`, source: 'info' });
     } else {
@@ -149,7 +222,6 @@ export default function CodePilotPage() {
     }
   }, [addLog]);
   
-
   const handleSubmitInstructionToAgentPanel = () => {
     if (!selectedAgent) {
       addLog({ message: "Please select an agent first (from Agent Panels).", source: "error"});
@@ -159,6 +231,8 @@ export default function CodePilotPage() {
       addLog({ message: "Instruction for Agent Panel cannot be empty.", source: "error"});
       return;
     }
+    // This function's purpose seems to be for a different instruction input mechanism
+    // than the main chat. For now, it's a mock for the AgentPanels.
     addLog({ message: `Instruction submitted to ${selectedAgent} agent (from Agent Panel): "${instruction}"`, source: 'agent'});
     setIsSubmittingInstruction(true);
     setTimeout(() => {
@@ -172,15 +246,14 @@ export default function CodePilotPage() {
     <MainLayout
       repoUrl={repoUrl}
       setRepoUrl={setRepoUrl}
-      currentGitBranch={currentGitBranch} // Pass currentGitBranch
+      currentGitBranch={currentGitBranch} 
+      token={token} // Token is used by /api/git for clone, not directly by save-file frontend
       setToken={setToken}
-      token={token}
       isCloned={isCloned}
       onClone={handleClone}
       onPull={handlePull} 
       onStageAll={handleStageAll}
       onCommit={handleCommitAndPush}
-      // onPush is part of handleCommitAndPush
       fileSystemRoot={fileSystemRoot}
       selectedFile={selectedFile}
       onFileSelect={handleFileSelect}
@@ -194,3 +267,4 @@ export default function CodePilotPage() {
     />
   );
 }
+
