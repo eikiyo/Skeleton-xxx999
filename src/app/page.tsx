@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -45,7 +46,6 @@ export default function CodePilotPage() {
       return;
     }
     addLog(`Cloning repository: ${repoUrl}... (Mocked)`, 'info');
-    // Simulate cloning
     setTimeout(() => {
       const mockFiles: FileSystem = {
         'README.md': '# My Awesome Project\nThis is a sample README file.',
@@ -55,13 +55,34 @@ export default function CodePilotPage() {
       };
       setFiles(mockFiles);
       setIsCloned(true);
+      setSelectedFilePath(null); // Reset selected file on new clone
+      setCurrentFileContent('');
       addLog('Repository cloned successfully. (Mocked)', 'success');
+    }, 1000);
+  };
+
+  const handlePull = () => {
+    if (!isCloned) {
+      addLog("No repository cloned to pull from.", 'error');
+      return;
+    }
+    addLog('Pulling latest changes from remote... (Mocked)', 'info');
+    // Simulate pulling changes - potentially update files
+    setTimeout(() => {
+      // Example: Update README.md
+      // const updatedFiles = { ...files, 'README.md': files['README.md'] + '\n\nUpdated content from pull.' };
+      // setFiles(updatedFiles);
+      // if (selectedFilePath === 'README.md') {
+      //   setCurrentFileContent(updatedFiles['README.md']);
+      // }
+      addLog('Repository pulled successfully. (Mocked)', 'success');
     }, 1000);
   };
 
   const handleStageAll = () => addLog('Staging all changes... (Mocked)', 'info');
   const handleCommit = (message: string) => addLog(`Committing with message: "${message}"... (Mocked)`, 'info');
   const handlePush = () => addLog('Pushing changes... (Mocked)', 'info');
+
 
   // --- File System Handlers ---
   const handleFileSelect = (path: string) => {
@@ -70,12 +91,15 @@ export default function CodePilotPage() {
     addLog(`Selected file: ${path}`, 'info');
   };
 
-  const setFileContent = (path: string, newContent: string) => {
+  // Renamed from setFileContent to avoid conflict with props in MainLayout if directly used.
+  // This function is what CodeEditor calls via its setContent prop.
+  const updateFileContentInState = (path: string, newContent: string) => {
     setFiles(prevFiles => ({ ...prevFiles, [path]: newContent }));
     if (path === selectedFilePath) {
       setCurrentFileContent(newContent);
     }
   };
+
 
   // --- Instruction Submission ---
   const handleSubmitInstruction = () => {
@@ -89,11 +113,7 @@ export default function CodePilotPage() {
     }
     addLog(`Instruction submitted to ${selectedAgent} agent: "${instruction}"`, 'agent');
     setIsSubmittingInstruction(true);
-    // Actual agent interaction (DeveloperAgentPanel/QAAgentPanel) will handle API calls.
-    // This function is mainly for logging and potentially triggering agent UI.
-    // For now, we let the agent panels handle their own submission logic.
-    // This can be expanded if there's a central dispatcher.
-    setTimeout(() => setIsSubmittingInstruction(false), 500); // Simulate end of submission dispatch
+    setTimeout(() => setIsSubmittingInstruction(false), 500); 
   };
 
   // --- Patch Application ---
@@ -107,7 +127,7 @@ export default function CodePilotPage() {
     const [newText, results] = dmp.patch_apply(patches, currentFileContent);
 
     if (results.every(result => result === true)) {
-      setFileContent(selectedFilePath, newText as string); // newText is string here
+      updateFileContentInState(selectedFilePath, newText as string); 
       addLog(`Patch applied successfully to ${selectedFilePath}.`, "success");
     } else {
       addLog(`Failed to apply patch to ${selectedFilePath}. Some hunks may have failed.`, "error");
@@ -115,11 +135,10 @@ export default function CodePilotPage() {
         if (!result) addLog(`Patch hunk ${i+1} failed.`, "error");
       });
     }
-  }, [selectedFilePath, currentFileContent, addLog, setFileContent]);
+  }, [selectedFilePath, currentFileContent, addLog, updateFileContentInState]);
 
 
   useEffect(() => {
-    // Effect to update currentFileContent if the selected file's content changes externally (e.g. by patch)
     if (selectedFilePath && files[selectedFilePath] !== currentFileContent) {
       setCurrentFileContent(files[selectedFilePath]);
     }
@@ -134,6 +153,7 @@ export default function CodePilotPage() {
       setToken={setToken}
       isCloned={isCloned}
       onClone={handleClone}
+      onPull={handlePull} // Pass new handler
       onStageAll={handleStageAll}
       onCommit={handleCommit}
       onPush={handlePush}
@@ -141,7 +161,7 @@ export default function CodePilotPage() {
       selectedFilePath={selectedFilePath}
       currentFileContent={currentFileContent}
       onFileSelect={handleFileSelect}
-      setFileContent={setFileContent}
+      setFileContent={updateFileContentInState} // Pass the state updater function
       instruction={instruction}
       setInstruction={setInstruction}
       selectedAgent={selectedAgent}

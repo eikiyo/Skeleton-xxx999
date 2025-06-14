@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Github, DownloadCloud } from 'lucide-react';
+import { Github, DownloadCloud, RefreshCw } from 'lucide-react';
 
 interface GitControlsProps {
   repoUrl: string;
@@ -14,8 +14,8 @@ interface GitControlsProps {
   token: string;
   setToken: (token: string) => void;
   onClone: () => void;
+  onPull: () => void;
   isCloned: boolean;
-  // Removed onStageAll, onCommit, onPush as they are no longer used in this simplified version
 }
 
 export function GitControls({
@@ -24,6 +24,7 @@ export function GitControls({
   token,
   setToken,
   onClone,
+  onPull,
   isCloned
 }: GitControlsProps) {
 
@@ -33,7 +34,7 @@ export function GitControls({
         <CardTitle className="font-headline text-lg flex items-center">
             <Github className="h-5 w-5 mr-2" /> Git Controls
         </CardTitle>
-        <CardDescription>Manage your repository.</CardDescription>
+        <CardDescription>Manage your repository connection.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="space-y-1">
@@ -62,6 +63,10 @@ export function GitControls({
         <Button onClick={onClone} className="w-full" disabled={isCloned}>
           <DownloadCloud className="mr-2 h-4 w-4" /> 
           {isCloned ? 'Repository Cloned' : 'Clone Repository'}
+        </Button>
+        <Button onClick={onPull} className="w-full" variant="outline" disabled={!isCloned}>
+          <RefreshCw className="mr-2 h-4 w-4" /> 
+          Pull Repository
         </Button>
       </CardContent>
     </Card>

@@ -17,14 +17,14 @@ interface CanvasGitActionsProps {
 export function CanvasGitActions({ onStageAll, onCommit, onPush, isCloned }: CanvasGitActionsProps) {
   const [commitMessage, setCommitMessage] = useState('');
 
-  const handleCommit = () => {
+  const handleCommitAndPush = () => {
     if (!commitMessage.trim()) {
-      // Optionally, show a toast or validation message
       alert("Commit message cannot be empty.");
       return;
     }
     onCommit(commitMessage);
-    setCommitMessage(''); // Clear message after commit
+    onPush(); // Call push immediately after commit
+    setCommitMessage(''); 
   };
 
   return (
@@ -43,17 +43,19 @@ export function CanvasGitActions({ onStageAll, onCommit, onPush, isCloned }: Can
             disabled={!isCloned}
             aria-label="Commit message"
           />
-          <Button onClick={handleCommit} disabled={!isCloned || !commitMessage.trim()} className="whitespace-nowrap">
-            <GitCommit className="mr-2 h-4 w-4" /> Commit
+          <Button onClick={handleCommitAndPush} disabled={!isCloned || !commitMessage.trim()} className="whitespace-nowrap">
+            <GitCommit className="mr-2 h-4 w-4" /> Commit & Push
           </Button>
         </div>
         <div className="flex gap-2">
           <Button onClick={onStageAll} disabled={!isCloned} className="flex-1">
             <UploadCloud className="mr-2 h-4 w-4" /> Stage All
           </Button>
-          <Button onClick={onPush} disabled={!isCloned} className="flex-1">
+          {/* Push button is now part of Commit & Push, so it can be removed if desired, or kept for standalone push */}
+          {/* For this iteration, keeping standalone Push might be confusing. Let's remove it. */}
+          {/* <Button onClick={onPush} disabled={!isCloned} className="flex-1">
             <ArrowUpToLine className="mr-2 h-4 w-4" /> Push
-          </Button>
+          </Button> */}
         </div>
       </CardContent>
     </Card>
