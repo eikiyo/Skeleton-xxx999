@@ -57,7 +57,6 @@ export async function GET(req: NextRequest) {
       size: data.size,
       html_url: data.html_url,
       download_url: data.download_url,
-      // fullFileObject: data, // Optionally return the whole GitHub object
     });
 
   } catch (error) {
@@ -66,3 +65,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to call GitHub API to get file content.", details: errorMessage }, { status: 500 });
   }
 }
+

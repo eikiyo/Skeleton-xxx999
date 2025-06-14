@@ -130,9 +130,9 @@ export default function CodePilotPage() {
 
     const filesToSave: { path: string, content: string, sha?: string }[] = [];
     function collectFiles(node: FileNode) {
-      if (node.type === 'file') { // Check if content exists or if it's a newly created file
+      if (node.type === 'file') { 
         const relativePath = node.path.startsWith('/') ? node.path.substring(1) : node.path;
-        // Only save files that are not just empty placeholders from a shallow clone
+        
         if (relativePath && node.content !== undefined) { 
            filesToSave.push({ path: relativePath, content: node.content, sha: node.sha });
         }
@@ -175,12 +175,13 @@ export default function CodePilotPage() {
           allSuccessful = false;
           addLog({ message: `Failed to save ${file.path}: ${data.error || data.details || `Status ${response.status}`}`, source: 'error' });
         } else {
-          addLog({ message: `Successfully saved ${file.path} to GitHub. Commit: ${data.commit?.sha?.substring(0,7) || 'N/A'}`, source: 'success' });
+          addLog({ message: `Successfully saved ${file.path} to GitHub. Commit: ${data.githubResponse?.commit?.sha?.substring(0,7) || 'N/A'}`, source: 'success' });
           // Update SHA in FileSystemContext after successful save
-          if (data.content?.sha) {
-            updateFileDetails(file.path, { sha: data.content.sha });
+          if (data.githubResponse?.content?.sha) {
+            updateFileDetails(file.path, { sha: data.githubResponse.content.sha });
+            // If the currently selected file was this one, update its state too
             if (selectedFile && selectedFile.path === file.path) {
-              setSelectedFile(prev => prev ? ({...prev, sha: data.content.sha }) : null);
+              setSelectedFile(prev => prev ? ({...prev, sha: data.githubResponse.content.sha }) : null);
             }
           }
         }
@@ -318,3 +319,4 @@ export default function CodePilotPage() {
     />
   );
 }
+
