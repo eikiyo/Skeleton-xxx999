@@ -20,13 +20,14 @@ import { FileExplorer } from './file-explorer';
 import { GitControls } from './git-controls';
 import { CodeEditor } from './code-editor';
 import { ConsoleOutput } from './console-output';
-import { InstructionInput } from './instruction-input';
+// import { InstructionInput } from './instruction-input'; // No longer used directly here for chat
 import { AgentPanels } from './agent-panels';
 import { CanvasGitActions } from './canvas-git-actions';
 import type { FileSystem, LogEntry, AgentType } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import InstructionChat from './instruction-chat'; // Import the new component
 
 interface MainLayoutProps {
   // Git State
@@ -47,7 +48,7 @@ interface MainLayoutProps {
   onFileSelect: (path: string) => void;
   setFileContent: (path: string, content: string) => void;
   
-  // Instruction & Agent State
+  // Instruction & Agent State (some props might be deprecated for chat by InstructionChat)
   instruction: string;
   setInstruction: (instruction: string) => void;
   selectedAgent: AgentType | null;
@@ -158,7 +159,8 @@ export function MainLayout(props: MainLayoutProps) {
 
         <div className={cn(
           "flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto",
-          (isChatTabActive || isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive) && "pb-4" 
+          (isAgentsTabActive || isGitTabActive || isCanvasTabActive || isOthersTabActive) && "pb-4",
+          isChatTabActive && "p-0 md:p-2" // Full bleed for chat, or small padding on md+
         )}>
           {/* Left Column (Sidebar Content) */}
           {showLeftColumnContent && (
@@ -175,14 +177,15 @@ export function MainLayout(props: MainLayoutProps) {
                   isCloned={props.isCloned}
                 />
               )}
-              {/* FileExplorer is removed from GitControls tab view */}
+              {/* FileExplorer is not shown when GitControls tab is active, handled by showLeftColumnContent */}
             </div>
           )}
 
           {/* Center Column (Agent Panels / Code Editor / Chat Interface / Canvas / Others) */}
           <div className={cn(
             "flex flex-col h-full overflow-y-auto",
-            (!showLeftColumnContent || isChatTabActive || isAgentsTabActive || isOthersTabActive || isCanvasTabActive) ? "md:col-span-3" : "md:col-span-2"
+            (isChatTabActive || isAgentsTabActive || isOthersTabActive || isCanvasTabActive || !showLeftColumnContent) ? "md:col-span-3" : "md:col-span-2",
+             isChatTabActive ? "bg-[#1B262C] rounded-lg" : "" // Specific background for chat container
           )}>
             {isAgentsTabActive ? (
                 <AgentPanels
@@ -191,32 +194,19 @@ export function MainLayout(props: MainLayoutProps) {
                   addLog={props.addLog}
                 />
             ) : isChatTabActive ? (
-                <>
-                  <div className="flex-grow min-h-0">
-                    <Card className="h-full flex flex-col items-center justify-center shadow-sm">
-                        <CardHeader>
-                            <CardTitle className="text-xl font-headline text-center">Chat Interface</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-muted-foreground text-center">
-                                This is the dedicated chat area. <br/> (Messages will appear here)
-                            </p>
-                        </CardContent>
-                    </Card>
-                  </div>
-                  <div className="shrink-0 basis-[20%] min-h-[144px] mt-4">
-                    <InstructionInput
-                      instruction={props.instruction}
-                      setInstruction={props.setInstruction}
-                      onSubmit={props.submitInstruction}
-                      isSubmitting={props.isSubmittingInstruction}
-                      selectedAgent={props.selectedAgent} 
-                    />
-                  </div>
-                </>
+                <div className="h-full w-full"> {/* Container for InstructionChat */}
+                  <InstructionChat />
+                </div>
             ) : isCanvasTabActive ? (
-                <div className="h-full flex flex-col">
+                <div className="h-full flex flex-col gap-4">
                     <div className="flex-grow min-h-0">
+                         <FileExplorer
+                            files={props.files}
+                            selectedFilePath={props.selectedFilePath}
+                            onFileSelect={props.onFileSelect}
+                          />
+                    </div>
+                    <div className="flex-grow min-h-0 basis-1/2">
                         <CodeEditor
                             filePath={props.selectedFilePath}
                             content={props.currentFileContent}
@@ -224,14 +214,7 @@ export function MainLayout(props: MainLayoutProps) {
                             title="Canvas"
                         />
                     </div>
-                    <div className="shrink-0 mt-4">
-                         <FileExplorer
-                            files={props.files}
-                            selectedFilePath={props.selectedFilePath}
-                            onFileSelect={props.onFileSelect}
-                          />
-                    </div>
-                    <div className="shrink-0 mt-4">
+                    <div className="shrink-0 mt-auto">
                         <CanvasGitActions
                             onStageAll={props.onStageAll}
                             onCommit={props.onCommit}
@@ -261,11 +244,11 @@ export function MainLayout(props: MainLayoutProps) {
             ) : ( // This covers 'git' tab for the center panel
                  <div className="h-full">
                     <CodeEditor
-                      filePath={props.selectedFilePath}
-                      content={props.currentFileContent}
-                      setContent={props.setFileContent}
+                      filePath={null} // No specific file for project structure, content shows all files
+                      content={Object.entries(props.files).map(([path, content]) => `// ${path}\n${content}`).join('\n\n')}
+                      setContent={() => {}} // Read-only
                       title="Project Structure"
-                      readOnly={true} // Make project structure view read-only
+                      readOnly={true} 
                     />
                 </div>
             )}
@@ -281,3 +264,4 @@ export function MainLayout(props: MainLayoutProps) {
     </SidebarProvider>
   );
 }
+
