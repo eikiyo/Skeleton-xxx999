@@ -84,7 +84,7 @@ export function MainLayout(props: MainLayoutProps) {
             <SidebarMenuItem>
               <SidebarMenuButton 
                 tooltip="Agents" 
-                isActive={isAgentsTabActive || activeSidebarTab === 'agents'} // Keep "Agents" highlighted if interacting with agent panels
+                isActive={isAgentsTabActive || activeSidebarTab === 'agents'}
                 onClick={() => setActiveSidebarTab('agents')}
               >
                 <Bot /> <span>Agents</span>
@@ -139,7 +139,7 @@ export function MainLayout(props: MainLayoutProps) {
         <div className="flex-grow grid md:grid-cols-3 gap-4 p-4 overflow-auto">
           {/* Left Column (Sidebar Content) or Main Content on Mobile */}
           <div className="md:col-span-1 flex flex-col gap-4 h-full overflow-y-auto">
-            {activeSidebarTab === 'agents' && ( // Show InstructionInput only for 'agents' tab
+            {activeSidebarTab === 'agents' && (
               <InstructionInput
                 instruction={props.instruction}
                 setInstruction={props.setInstruction}
@@ -170,34 +170,49 @@ export function MainLayout(props: MainLayoutProps) {
                 />
               </Card>
             )}
-            {/* If chat tab is active, this column might be empty or show other chat-specific controls in the future */}
+            {/* If chat tab is active, this column is empty, InstructionInput is moved to center panel */}
           </div>
 
           {/* Center Column (Agent Panels / Code Editor / Chat Interface) */}
-          <div className="md:col-span-2 flex flex-col gap-4 h-full overflow-y-auto">
+          <div className="md:col-span-2 flex flex-col h-full overflow-y-auto">
             {activeSidebarTab === 'agents' ? (
                 <AgentPanels
                   selectedAgent={props.selectedAgent}
                   setSelectedAgent={props.setSelectedAgent}
                   instruction={props.instruction}
-                  currentCode={props.currentFileContent} // For QA Agent
-                  currentFileContentForDeveloperAgent={props.currentFileContent} // For Developer Agent context
+                  currentCode={props.currentFileContent} 
+                  currentFileContentForDeveloperAgent={props.currentFileContent}
                   selectedFilePath={props.selectedFilePath}
                   setFileContent={props.setFileContent}
                   addLog={props.addLog}
                   applyPatch={props.applyPatch}
                 />
             ) : activeSidebarTab === 'chat' ? (
-                <Card className="h-full flex flex-col items-center justify-center shadow-sm">
-                    <CardHeader>
-                        <CardTitle className="text-xl font-headline text-center">Chat Interface</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-muted-foreground text-center">
-                            This is the dedicated chat area.
-                        </p>
-                    </CardContent>
-                </Card>
+                <>
+                  {/* Chat Messages Area */}
+                  <div className="flex-grow min-h-0">
+                    <Card className="h-full flex flex-col items-center justify-center shadow-sm">
+                        <CardHeader>
+                            <CardTitle className="text-xl font-headline text-center">Chat Interface</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-muted-foreground text-center">
+                                This is the dedicated chat area. <br/> (Messages will appear here)
+                            </p>
+                        </CardContent>
+                    </Card>
+                  </div>
+                  {/* Chat Input Area */}
+                  <div className="shrink-0 basis-[20%] min-h-[144px] mt-4">
+                    <InstructionInput
+                      instruction={props.instruction}
+                      setInstruction={props.setInstruction}
+                      onSubmit={props.submitInstruction}
+                      isSubmitting={props.isSubmittingInstruction}
+                      selectedAgent={props.selectedAgent} 
+                    />
+                  </div>
+                </>
             ) : ( // This covers 'git' and 'files' tabs for the center panel
                  <div className="h-full">
                     <CodeEditor
@@ -210,7 +225,7 @@ export function MainLayout(props: MainLayoutProps) {
           </div>
         </div>
         
-        {/* Bottom section for Console - conditionally rendered */}
+        {/* Bottom section for Console - conditionally rendered (hidden for chat) */}
         {activeSidebarTab !== 'chat' && (
           <div className="h-[200px] md:h-[250px] p-4 pt-0">
             <ConsoleOutput logs={props.logs} />
@@ -220,3 +235,4 @@ export function MainLayout(props: MainLayoutProps) {
     </SidebarProvider>
   );
 }
+
