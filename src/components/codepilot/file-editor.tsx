@@ -8,13 +8,13 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import * as esprima from "esprima";
 import * as ts from "typescript";
-import { Save, Loader2 } from "lucide-react"; // Import Save and Loader2 icons
+import { Save, Loader2 } from "lucide-react"; 
 
 function getSyntaxError(path: string, code: string): string | null {
   const fileName = path.split('/').pop() || path;
   if (fileName.endsWith(".js") || fileName.endsWith(".jsx")) {
     try {
-      esprima.parseScript(code, { jsx: fileName.endsWith(".jsx") });
+      esprima.parseScript(code, { jsx: fileName.endsWith(".jsx"), tolerant: true }); // Added tolerant
       return null;
     } catch (err: any) {
       return err.description || err.message || "Unknown JS syntax error";
@@ -26,40 +26,44 @@ function getSyntaxError(path: string, code: string): string | null {
       target: ts.ScriptTarget.ESNext,
       module: ts.ModuleKind.ESNext,
       jsx: fileName.endsWith(".tsx") ? ts.JsxEmit.ReactJSX : ts.JsxEmit.None,
+      allowJs: true, // Allow JS files to be processed by TS compiler (for mixed projects)
+      skipLibCheck: true, // Skip checking declaration files
+      forceConsistentCasingInFileNames: true,
+      // noErrorTruncation: true, // Potentially useful for longer error messages
     };
     const sourceFile = ts.createSourceFile(
       fileName,
       code,
       options.target || ts.ScriptTarget.ESNext,
       true, 
-      fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+      fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : (fileName.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS) // Adjust ScriptKind
     );
     const host: ts.CompilerHost = {
       getSourceFile: (fileNameRequested: string) => fileNameRequested === fileName ? sourceFile : undefined,
-      getDefaultLibFileName: () => "lib.d.ts",
+      getDefaultLibFileName: () => "lib.esnext.d.ts", // More common default lib
       writeFile: () => {},
       getCurrentDirectory: () => "/",
       getDirectories: () => [],
-      fileExists: (fileNameRequested: string) => fileNameRequested === fileName || fileNameRequested === "lib.d.ts",
-      readFile: (fileNameRequested: string) => fileNameRequested === fileName ? code : (fileNameRequested === "lib.d.ts" ? "declare var console: any;" : undefined),
+      fileExists: (fileNameRequested: string) => fileNameRequested === fileName || fileNameRequested.startsWith("lib."),
+      readFile: (fileNameRequested: string) => fileNameRequested === fileName ? code : (fileNameRequested.startsWith("lib.") ? "" : undefined), // Simplified lib file handling
       getCanonicalFileName: (fileName) => fileName,
       useCaseSensitiveFileNames: () => true,
       getNewLine: () => "\n",
       getEnvironmentVariable: () => "",
     };
     const program = ts.createProgram([fileName], options, host);
-    const emitResult = program.emit();
+    const emitResult = program.emit(); // Emit is needed to gather all diagnostics
     const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
 
     if (allDiagnostics && allDiagnostics.length > 0) {
       return allDiagnostics
         .map(diagnostic => {
+          let message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
           if (diagnostic.file && diagnostic.start !== undefined) {
             const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-            const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
             return `L${line + 1}, C${character + 1}: ${message}`;
           }
-          return ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+          return message;
         })
         .join(" | ");
     }
@@ -79,7 +83,7 @@ export default function FileEditor({
   repoUrl,
   targetBranch,
 }: FileEditorProps) {
-  const { updateFile: updateFileInContext, getFile } = useFileSystem(); // Renamed to avoid conflict
+  const { updateFileDetails, getFile } = useFileSystem(); 
   const { toast } = useToast();
   const [content, setContent] = useState(file?.content || "");
   const [syntaxError, setSyntaxError] = useState<string | null>(null);
@@ -95,12 +99,11 @@ export default function FileEditor({
   useEffect(() => {
     if (file && (file.path.endsWith(".js") || file.path.endsWith(".jsx") || file.path.endsWith(".ts") || file.path.endsWith(".tsx"))) {
       const handler = setTimeout(() => {
-        // Ensure file object is current before checking syntax, especially its name property
         const currentFile = file ? getFile(file.path) : null;
-        if (currentFile && currentFile.name) { // Check if currentFile and currentFile.name are valid
-             setSyntaxError(getSyntaxError(currentFile.name, content));
+        if (currentFile && currentFile.name) { 
+             setSyntaxError(getSyntaxError(currentFile.path, content)); // Use full path for getSyntaxError
         } else {
-            setSyntaxError(null); // Or handle as error if file/name is unexpectedly missing
+            setSyntaxError(null); 
         }
       }, 300);
       return () => clearTimeout(handler);
@@ -121,8 +124,7 @@ export default function FileEditor({
     }
     if (file) {
       setIsSavingToMemory(true);
-      updateFileInContext(file.path, content);
-      // Simulate a small delay for visual feedback if needed
+      updateFileDetails(file.path, { content }); // Update content only
       await new Promise(resolve => setTimeout(resolve, 300)); 
       setIsSavingToMemory(false);
       toast({
@@ -155,7 +157,7 @@ export default function FileEditor({
             repoName = pathParts[pathParts.length - 1];
         } else {
           const sshMatch = repoUrl.match(/[:/]([\w-]+)\/([\w-]+)(\.git)?$/);
-          if (sshMatch && sshMatch.length >= 3) { // Adjusted to match 3 groups for user/repo.git or user/repo
+          if (sshMatch && sshMatch.length >= 3) { 
             owner = sshMatch[1];
             repoName = sshMatch[2];
           } else {
@@ -173,9 +175,13 @@ export default function FileEditor({
     }
 
     const commitMessage = window.prompt(`Enter commit message for ${file.name}:`, `Update ${file.name}`) || `Update ${file.name}`;
+    if (!commitMessage.trim()) {
+        toast({ title: "Commit Aborted", description: "Commit message cannot be empty.", variant: "destructive" });
+        return;
+    }
     
     const filePathInRepo = file.path.startsWith('/') ? file.path.substring(1) : file.path;
-    const fileSha = (file as any).sha; // Attempt to get SHA, assuming FileNode might have it
+    const fileSha = file.sha; 
 
     setIsSavingToGitHub(true);
     try {
@@ -206,15 +212,8 @@ export default function FileEditor({
           title: "Saved to GitHub",
           description: `${file.name} has been saved to branch ${targetBranch}. Commit: ${data.commit?.sha?.substring(0,7) || 'N/A'}`,
         });
-        // Optionally update in-memory file's SHA if backend returns it and if FileNode supports it.
-        // For now, we also update the in-memory content to match what was saved.
-        updateFileInContext(file.path, content); 
-        if (data.content?.sha && file) {
-            const updatedFileNode = { ...file, content, sha: data.content.sha };
-             // This is a conceptual update. The FileSystemContext needs a way to update a node's SHA.
-             // For now, we'll just rely on the content being in sync.
-             // updateFileNodeInContext(file.path, updatedFileNode);
-        }
+        // Update in-memory file's content and SHA
+        updateFileDetails(file.path, { content, sha: data.githubResponse?.content?.sha }); 
       }
     } catch (error) {
       toast({
@@ -289,5 +288,7 @@ export default function FileEditor({
     </Card>
   );
 }
+
+    
 
     

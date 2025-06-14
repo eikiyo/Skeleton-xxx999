@@ -9,6 +9,7 @@ export type FileNode = {
   path: string;
   content?: string; // Only for type: file
   children?: FileNode[]; // Only for type: folder
+  sha?: string; // Optional: SHA for GitHub file versioning
 };
 
 type FileSystemContextType = {
@@ -16,9 +17,10 @@ type FileSystemContextType = {
   setRoot: (root: FileNode) => void;
   getFile: (path: string) => FileNode | undefined;
   updateFile: (path: string, content: string) => void;
+  updateFileDetails: (path: string, details: { content?: string; sha?: string }) => void;
   addFileOrDirectory: (parentPath: string, name: string, type: "file" | "folder", content?: string) => void;
   removeFileOrDirectory: (path: string) => void;
-  initializeFileSystem: (files: Record<string, string>) => void;
+  initializeFileSystem: (files: Record<string, { content: string; sha?: string }>) => void;
 };
 
 const FileSystemContext = createContext<FileSystemContextType | undefined>(undefined);
@@ -41,7 +43,7 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
     if (node.type === "folder" && node.children) {
       for (const child of node.children) {
         // Ensure path matching is correct, especially for nested lookups
-        if (path.startsWith(child.path + (child.type === 'folder' && child.path !== '/' ? '/' : ''))) { // Added '/' for folder check unless root
+        if (path.startsWith(child.path + (child.type === 'folder' && child.path !== '/' ? '/' : ''))) { 
           const found = findNode(path, child);
           if (found) return found;
         }
@@ -65,7 +67,25 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
       return node;
     }
     setRootInternal(prevRoot => update(prevRoot));
-  }, [root]);
+  }, []);
+
+  const updateFileDetails = useCallback((path: string, details: { content?: string; sha?: string }) => {
+    function update(node: FileNode): FileNode {
+      if (node.path === path && node.type === "file") {
+        return { 
+          ...node, 
+          ...(details.content !== undefined && { content: details.content }),
+          ...(details.sha !== undefined && { sha: details.sha }) 
+        };
+      }
+      if (node.type === "folder" && node.children) {
+        return { ...node, children: node.children.map(update).sort((a,b) => a.name.localeCompare(b.name)) };
+      }
+      return node;
+    }
+    setRootInternal(prevRoot => update(prevRoot));
+  }, []);
+
 
   const addFileOrDirectory = useCallback((parentPath: string, name: string, type: "file" | "folder", content?: string) => {
     const newPath = (parentPath === "/" ? "" : parentPath) + "/" + name;
@@ -84,11 +104,19 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
                     console.warn(`Item named "${name}" already exists in "${parentPath}". Skipping add.`);
                     return current; 
                 }
-                const newChildren = [...(current.children || []), newNodeData].sort((a,b) => a.name.localeCompare(b.name));
+                const newChildren = [...(current.children || []), newNodeData].sort((a,b) => {
+                    if (a.type === 'folder' && b.type === 'file') return -1;
+                    if (a.type === 'file' && b.type === 'folder') return 1;
+                    return a.name.localeCompare(b.name);
+                });
                 return { ...current, children: newChildren };
             }
             if (current.type === "folder" && current.children) {
-                return { ...current, children: current.children.map(child => add(child)).sort((a,b) => a.name.localeCompare(b.name)) };
+                return { ...current, children: current.children.map(child => add(child)).sort((a,b) => {
+                    if (a.type === 'folder' && b.type === 'file') return -1;
+                    if (a.type === 'file' && b.type === 'folder') return 1;
+                    return a.name.localeCompare(b.name);
+                }) };
             }
             return current;
         }
@@ -103,7 +131,11 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
             if (node.type === "folder" && node.children) {
                 return {
                     ...node,
-                    children: node.children.filter((child) => child.path !== pathToRemove).map(remove).sort((a,b) => a.name.localeCompare(b.name)),
+                    children: node.children.filter((child) => child.path !== pathToRemove).map(remove).sort((a,b) => {
+                        if (a.type === 'folder' && b.type === 'file') return -1;
+                        if (a.type === 'file' && b.type === 'folder') return 1;
+                        return a.name.localeCompare(b.name);
+                    }),
                 };
             }
             return node;
@@ -112,24 +144,27 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
         if (prevRoot.path === "/" && prevRoot.children?.some(child => child.path === pathToRemove)) {
              return {
                 ...prevRoot,
-                children: prevRoot.children.filter(child => child.path !== pathToRemove).sort((a,b) => a.name.localeCompare(b.name)),
+                children: prevRoot.children.filter(child => child.path !== pathToRemove).sort((a,b) => {
+                    if (a.type === 'folder' && b.type === 'file') return -1;
+                    if (a.type === 'file' && b.type === 'folder') return 1;
+                    return a.name.localeCompare(b.name);
+                }),
              }
         }
         return remove(prevRoot);
     });
   }, []);
   
-  const initializeFileSystem = useCallback((files: Record<string, string>) => {
+  const initializeFileSystem = useCallback((files: Record<string, { content: string; sha?: string }>) => {
     let newRootNode: FileNode = { type: "folder", name: "", path: "/", children: [] };
 
-    Object.entries(files).forEach(([filePath, fileContent]) => {
-        const parts = filePath.split('/').filter(p => p); // a/b/c.txt -> [a,b,c.txt]
+    Object.entries(files).forEach(([filePath, fileData]) => {
+        const parts = filePath.split('/').filter(p => p); 
         let currentNode = newRootNode;
 
         for (let i = 0; i < parts.length; i++) {
             const part = parts[i];
             const isLastPart = i === parts.length - 1;
-            // Construct path for current part
             const childPath = (currentNode.path === "/" ? "" : currentNode.path) + "/" + part;
 
             let childNode = currentNode.children?.find(child => child.name === part);
@@ -141,14 +176,16 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
                     type: isLastPart ? "file" : "folder",
                 };
                 if (isLastPart) {
-                    (childNode as FileNode).content = fileContent;
+                    (childNode as FileNode).content = fileData.content;
+                    if (fileData.sha) {
+                        (childNode as FileNode).sha = fileData.sha;
+                    }
                 } else {
                     (childNode as FileNode).children = [];
                 }
                 
                 if (!currentNode.children) currentNode.children = [];
                 currentNode.children.push(childNode);
-                // Sort children by name (folders first, then files, then alphabetically)
                 currentNode.children.sort((a, b) => {
                     if (a.type === 'folder' && b.type === 'file') return -1;
                     if (a.type === 'file' && b.type === 'folder') return 1;
@@ -156,11 +193,8 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
                 });
             } else if (childNode.type === "file" && !isLastPart) {
                 console.warn(`Path conflict: ${childPath} is a file but should be a folder for ${filePath}.`);
-                // This indicates a malformed file structure from the input.
-                // Potentially convert file to folder or skip. For now, we warn.
-                // To handle, you might need to overwrite childNode to be a folder.
             }
-            currentNode = childNode; // Move to the next node in the path
+            currentNode = childNode; 
         }
     });
     setRootInternal(newRootNode);
@@ -169,7 +203,7 @@ export function FileSystemProvider({ children }: { children: ReactNode }) {
 
   return (
     <FileSystemContext.Provider
-      value={{ root, setRoot, getFile, updateFile, addFileOrDirectory, removeFileOrDirectory, initializeFileSystem }}
+      value={{ root, setRoot, getFile, updateFile, updateFileDetails, addFileOrDirectory, removeFileOrDirectory, initializeFileSystem }}
     >
       {children}
     </FileSystemContext.Provider>
